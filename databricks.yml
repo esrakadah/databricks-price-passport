@@ -67,6 +67,18 @@ resources:
             - task_key: ingest
           pipeline_task:
             pipeline_id: ${resources.pipelines.silver.id}
+        - task_key: build_features
+          depends_on:
+            - task_key: refresh_silver
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-features
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
       environments:
         - environment_key: default
           spec:

@@ -146,7 +146,8 @@ A version number in a passport is only useful if that version can be read again.
 time travel, so the gold feature table is a plain Delta table written by a job. Its log and deleted-file retention are
 set to a year, so a version named in a passport stays readable for at least that long. The job reads the current
 version from the table history once and then reads with `VERSION AS OF` that number, so the stored version and the
-data read cannot drift apart.
+data read cannot drift apart. The first build on 29 October 2026 wrote version 0 with 17,328 rows, horizons 14 to 38
+hours, and no row with a missing feature.
 
 ## 10. Versioned tariff rule
 

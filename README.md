@@ -34,7 +34,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
   (1 Nov 2024 to 29 Oct 2026) in monthly files
 - [x] Silver pipeline in SQL: 728 delivery days, every one with the hours of its local day (23, 24 or 25), and
   17,472 hours of two-day-ahead weather forecasts for each of five sites
-- [ ] Gold features
+- [x] Gold features: one row per delivery hour with only what was known at 10:00 the day before, a plain Delta
+  table kept readable for a year; tomorrow's 24 hours are ready for scoring before their prices exist
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI
