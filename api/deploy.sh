@@ -36,6 +36,12 @@ if ! gcloud secrets describe "${SECRET}" --project "${PROJECT}" >/dev/null 2>&1;
   exit 1
 fi
 
+# The API serves the Flutter web app from public/, so the image carries the current build of app/.
+api_dir="$(cd "$(dirname "$0")" && pwd)"
+(cd "${api_dir}/../app" && flutter build web --release)
+rm -rf "${api_dir}/public"
+cp -R "${api_dir}/../app/build/web" "${api_dir}/public"
+
 gcloud secrets add-iam-policy-binding "${SECRET}" \
   --project "${PROJECT}" \
   --member "serviceAccount:${SERVICE_ACCOUNT}" \
@@ -45,7 +51,7 @@ gcloud secrets add-iam-policy-binding "${SECRET}" \
 gcloud run deploy "${SERVICE}" \
   --project "${PROJECT}" \
   --region "${REGION}" \
-  --source "$(dirname "$0")" \
+  --source "${api_dir}" \
   --service-account "${SERVICE_ACCOUNT}" \
   --max-instances "${MAX_INSTANCES}" \
   --min-instances 0 \

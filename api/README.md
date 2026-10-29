@@ -8,6 +8,7 @@ wake the warehouse (decisions section 5).
 |---|---|
 | `GET /prices?day=YYYY-MM-DD` | the hours of one local delivery day, with `source` and `fetched_at` |
 | `GET /health` | `ok` |
+| anything else | the built Flutter web app from `WEB_ROOT` (default `/app/public`), if present |
 
 With `SNAPSHOT_BUCKET` set, every live answer is also stored in that private bucket, and a failed live read is
 answered from it with `source: snapshot` and the original `fetched_at`. Not built yet: the passport route, which needs
