@@ -38,7 +38,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
   table kept readable for a year; tomorrow's 24 hours are ready for scoring before their prices exist
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query
-- [ ] Asset Bundle deployment from CI
+- [ ] Asset Bundle deployment from CI: deploy job on `main` into the `databricks-prod` environment, waiting for its
+  secret
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come
 - [ ] Flutter web passport

@@ -43,7 +43,8 @@ What has been verified on this workspace so far, and how:
 | Serverless environment version with Python 3.12 | verified 29 Oct 2026: environment version 4 runs Python 3.12.3 |
 | Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
 | Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
-| Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
+| Asset Bundle deploy from CI as `price-passport-ci` | prepared 29 Oct 2026: principal with `workspace-access`, `USE CATALOG` and `CREATE SCHEMA` on `workspace`; GitHub Environment `databricks-prod` limited to `main` with host and client ID as variables; the client secret is set by hand |
+| Unity Catalog model aliases, a serving endpoint | to check when each is first used |
 | A serverless SQL pipeline next to a job on Free Edition | verified 29 Oct 2026: `silver` deployed and refreshed while a backfill job ran |
 
 ## 3. Ingestion runs as a Databricks job (changed 29 Oct 2026)
