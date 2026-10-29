@@ -42,7 +42,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come
 - [ ] Flutter web passport
-- [ ] Genkit Dart agent with approval-gated overrides
+- [ ] Genkit Dart agent with approval-gated overrides: `explainPrice` over an MCP tool (`agent/`); passport and
+  overrides still to come
 
 ## Run the checks
 
