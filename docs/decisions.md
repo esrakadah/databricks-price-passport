@@ -40,35 +40,49 @@ What has been verified on this workspace so far, and how:
 | Workspace service principals | verified 29 Oct 2026, created with `databricks service-principals create` |
 | Workspace-level OAuth secrets for them | verified 29 Oct 2026 with `databricks service-principal-secrets-proxy create`, deleted again with `delete`; none remain |
 | Grants for `price-passport-reader` | not applied yet; applied with the Cloud Run service |
-| Serverless environment version with Python 3.12 | to check with the first job, then named in section 11 |
-| Serverless access to `api.energy-charts.info` and `api.open-meteo.com` | to check before the ingest Action is built |
-| Files API upload to a Volume from a GitHub runner | to check with the ingest Action |
+| Serverless environment version with Python 3.12 | verified 29 Oct 2026: environment version 4 runs Python 3.12.3 |
+| Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
+| Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
 | Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
-| Whether "one active pipeline per type" counts deployed or running pipelines | to check with the first pipeline |
+| A serverless SQL pipeline next to a job on Free Edition | verified 29 Oct 2026: `silver` deployed and refreshed while a backfill job ran |
 
-## 3. Ingestion runs outside Databricks
+## 3. Ingestion runs as a Databricks job (changed 29 Oct 2026)
 
-Because serverless compute can only reach trusted domains, the external APIs are called from a scheduled GitHub
-Action, which uploads the raw JSON into a Unity Catalog Volume through the Files API. If the check in section 2 shows
-both hosts are reachable from serverless, this decision is revisited rather than kept out of habit.
+The first version of this decision moved ingestion out of Databricks, into a GitHub Action, because Free Edition
+restricts outbound internet to trusted domains. A serverless test job on 29 October reached both
+`api.energy-charts.info` and `historical-forecast-api.open-meteo.com`, so ingestion runs where the rest of the data
+work runs: a scheduled job on serverless compute that writes the unchanged responses into the `raw` Volume.
 
-- The Action authenticates as the service principal `price-passport-ingest`, which may write to the raw Volume and
-  nothing else. Bundle deploys from CI use a second one, `price-passport-ci`. Both use OAuth machine-to-machine
-  secrets kept in a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid stored secrets, but
-  Databricks creates federation policies at account level, and Free Edition has no account console.
-- The day-ahead auction closes at 12:00 Berlin time and results follow shortly after. GitHub cron runs in UTC and is
-  best-effort, so the Action runs twice, at 12:40 and 15:40 UTC, which is after publication in both summer and winter
-  time. The 12:40 run is best-effort and stays green if tomorrow is not published yet; the 15:40 run is the one that
-  requires tomorrow. Each run fetches a rolling three-day window and overwrites one file per delivery day, so a
-  missed run heals itself and a repeated run changes nothing.
+- The job is part of the Asset Bundle (`databricks.yml`) and runs the packaged `price-passport-ingest` entry point.
+- Databricks schedules take a time zone, so it runs at 13:40 and 16:40 Berlin time, after the 12:00 auction results
+  are out, in summer and winter alike. The 13:40 run is best-effort and stays green if tomorrow is not published yet;
+  from 15:00 local time a run requires tomorrow, so the 16:40 run fails if tomorrow is missing.
+- Each run fetches yesterday, today and tomorrow and overwrites one file per delivery day, so a missed run heals itself
+  and a repeated run changes nothing (checked on the first run: the same checksum twice). A day that is not published
+  yet is reported, never written as an empty file. Energy-Charts answers such a day with HTTP 404 and "No content
+  available", which the first run on Databricks found at 12:01; both a 404 and an empty list count as not published.
+- Every API call becomes one file named after the days it covers (`range=<first>_<last>.json`). A daily run writes
+  one file per day; a backfill one file per calendar month, because Energy-Charts rate-limits single-day calls to
+  about one every 25 seconds (26 days in 11 minutes on the first attempt), while a month is one call. The two-year
+  backfill took 7 minutes. Silver keeps each timestamp from the most recently written file, so overlapping files
+  never count twice.
+- Weather is Open-Meteo's forecast for five sites across Germany as it stood two days before each hour
+  (`*_previous_day2` from the Previous Runs API), fetched up to tomorrow (section 7).
 - The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header (22 seconds when first seen on
-  29 Oct 2026); the Action waits as told.
-- A delivery day that should be published but comes back without prices fails the 15:40 run instead of looking green.
-- GitHub disables scheduled workflows in public repositories after 60 days without activity. A separate monthly
-  workflow, the only one with `actions: write`, re-enables the ingest workflow through the API; every other workflow
-  stays read-only. Whether that resets the 60-day clock is checked when it is built.
+  29 Oct 2026); the job waits as told, and pauses between requests anyway.
+- If Databricks narrows the trusted domains, the fallback is the original design: a scheduled GitHub Action that
+  fetches the same files and uploads them through the Files API as a service principal limited to the Volume.
+
+Bundle deploys from CI use the service principal `price-passport-ci` with an OAuth machine-to-machine secret kept in
+a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid a stored secret, but Databricks
+creates federation policies at account level, and Free Edition has no account console.
 
 ## 4. Hours, not quarter-hours
+
+Bronze and silver are materialized views in a SQL pipeline (`pipelines/raw_to_silver.sql`) that re-read the raw
+files on every refresh, so an overwritten file is always seen at its latest content. The SQL mirrors the Python parser,
+which stays the tested reference; `sql/checks/` holds the queries that compare silver with the calendar.
+
 
 The DE-LU day-ahead market moved to 15-minute products with delivery day 1 October 2025. Two years of history mix
 hourly and quarter-hourly prices. The tariff is hourly, so quarter-hours are averaged into the hour they start in.
@@ -111,9 +125,12 @@ covers the hours of D. `horizon_hours` is the start of the priced hour minus `fo
 38 on the day the clocks go back and 36 on the day they go forward.
 
 Features may only use what was known at 10:00 on D-1: day-ahead prices up to and including D-1, calendar features, and
-weather forecasts issued before the cutoff. Training uses Open-Meteo's archived historical forecasts rather than
-observed weather, so the model trains on the same kind of input it is scored on. Weather comes from several sites
-across Germany rather than one city, since the price follows national wind, solar and load.
+weather forecasts issued before the cutoff. Weather is the forecast each hour had two days earlier (Open-Meteo's
+`previous_day2`): for any hour of D that forecast run started no later than 23:00 on D-2, so it existed by the cutoff.
+The one-day-old forecast would leak for the late hours of D, and the stitched "historical forecast" series is only a few
+hours old for every hour. The same `previous_day2` series is available for tomorrow, so training and scoring use exactly
+the same feature. Weather comes from five sites across Germany rather than one city, since the price follows national
+wind, solar and load.
 
 ## 8. Baseline and promotion gate
 
@@ -129,7 +146,8 @@ A version number in a passport is only useful if that version can be read again.
 time travel, so the gold feature table is a plain Delta table written by a job. Its log and deleted-file retention are
 set to a year, so a version named in a passport stays readable for at least that long. The job reads the current
 version from the table history once and then reads with `VERSION AS OF` that number, so the stored version and the
-data read cannot drift apart.
+data read cannot drift apart. The first build on 29 October 2026 wrote version 0 with 17,328 rows, horizons 14 to 38
+hours, and no row with a missing feature.
 
 ## 10. Versioned tariff rule
 
@@ -140,4 +158,4 @@ parameters. A test pins the hash, so changing a parameter without raising the ve
 
 Free Edition has one workspace, so dev and prod are schemas in one catalog, selected by the Asset Bundle target, and
 one pipeline is parameterised by target rather than duplicated. Jobs pin a serverless environment version with
-Python 3.12, matching `requires-python`; the exact version is recorded here once the first job confirms it.
+Python 3.12, matching `requires-python`: environment version 4 (Python 3.12.3, checked 29 Oct 2026).

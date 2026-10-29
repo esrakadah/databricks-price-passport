@@ -10,8 +10,8 @@ the answer is a query, not a guess.
 ## What it will be
 
 ```text
-GitHub Action (twice a day) ── Energy-Charts + Open-Meteo ──> Unity Catalog Volume (raw JSON, one file per day)
 Databricks (Free Edition, deployed as an Asset Bundle from CI)
+  ingest job, 13:40 and 16:40 Berlin: Energy-Charts + Open-Meteo -> raw Volume, one file per source, site and day
   declarative pipeline: bronze -> silver (typed, hourly, completeness flags, expectations)
   feature job: gold features as a plain Delta table with long version retention
   MLflow training -> Unity Catalog model; training-data version logged on every run
@@ -30,8 +30,12 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 
 - [x] Day-ahead price parser: hourly and 15-minute responses, clock-change days, negative prices, partial hours
   flagged, malformed responses rejected (34 tests, 7 of them on 5 real API responses)
-- [ ] Ingestion into a Unity Catalog Volume
-- [ ] Pipeline and features
+- [x] Ingestion into a Unity Catalog Volume: Databricks job twice a day, deployed and running; two-year backfill
+  (1 Nov 2024 to 29 Oct 2026) in monthly files
+- [x] Silver pipeline in SQL: 728 delivery days, every one with the hours of its local day (23, 24 or 25), and
+  17,472 hours of two-day-ahead weather forecasts for each of five sites
+- [x] Gold features: one row per delivery hour with only what was known at 10:00 the day before, a plain Delta
+  table kept readable for a year; tomorrow's 24 hours are ready for scoring before their prices exist
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI
@@ -47,6 +51,13 @@ uv run ruff check
 uv run mypy
 uv run pytest
 ```
+
+## How this is built
+
+Esra Kadah designs the project and makes the decisions recorded in [docs/decisions.md](docs/decisions.md). Much of
+the code is written with Claude Code as a pair programmer, and commits it worked on carry a `Co-Authored-By` line. The
+design and the code also go through review rounds by independent AI reviewers whose findings are fixed in the open;
+every change still has to pass the tests, type checks and CI before it lands.
 
 ## Data and attribution
 
