@@ -1,8 +1,10 @@
-"""Fetches day-ahead prices and archived weather forecasts and stores them unchanged in a Unity Catalog Volume.
+"""Fetches day-ahead prices and weather forecasts and stores them unchanged in a Unity Catalog Volume.
 
-Runs as a Databricks job on serverless compute, which can reach both APIs (decisions section 3). There is one file per
-source, site and delivery day, rewritten on every run, so a repeated run changes nothing and a missed run is healed by
-the next one. Responses are validated before they are written: a file in the Volume is always a parseable response.
+Runs as a Databricks job on serverless compute, which can reach both APIs (decisions section 3). Every API call
+becomes one file named after the delivery days it covers: a daily run writes one file per day, a backfill one file per
+calendar month, because Energy-Charts rate-limits single-day calls to about one every 25 seconds. Files are rewritten
+on every run, so a repeated run changes nothing, and silver keeps the most recently written value of every hour.
+Responses are validated before they are written: a file in the Volume is always a parseable, complete response.
 """
 
 import argparse
@@ -21,16 +23,18 @@ from urllib.parse import urlencode
 from price_passport.energy_charts import TARIFF_TIMEZONE, EnergyChartsResponseError, parse_day_ahead_prices
 
 ENERGY_CHARTS_PRICE_URL = "https://api.energy-charts.info/price"
-OPEN_METEO_HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+OPEN_METEO_PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
 BIDDING_ZONE = "DE-LU"
 WEATHER_VARIABLES = ("temperature_2m", "wind_speed_100m", "shortwave_radiation", "cloud_cover")
+FORECAST_LEAD_SUFFIX = "_previous_day2"
 MAX_ATTEMPTS = 5
 DEFAULT_RETRY_AFTER_SECONDS = 30
 LONGEST_RETRY_AFTER_SECONDS = 120
-REQUEST_TIMEOUT_SECONDS = 30
-ENERGY_CHARTS_PAUSE_SECONDS = 1.0
+REQUEST_TIMEOUT_SECONDS = 60
+ENERGY_CHARTS_PAUSE_SECONDS = 2.0
 OPEN_METEO_PAUSE_SECONDS = 0.2
 DEFAULT_REQUIRE_TOMORROW_FROM_HOUR = 15
+DAYS_PAST_ANY_MONTH_START = 32
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,20 @@ WEATHER_SITES = (
     WeatherSite("frankfurt", 50.11, 8.68),
     WeatherSite("munich", 48.14, 11.58),
 )
+
+
+@dataclass(frozen=True)
+class DayRange:
+    first: date
+    last: date
+
+    def days(self) -> list[date]:
+        return [self.first + timedelta(days=offset) for offset in range((self.last - self.first).days + 1)]
+
+    @property
+    def file_name(self) -> str:
+        return f"range={self.first.isoformat()}_{self.last.isoformat()}.json"
+
 
 Fetch = Callable[[str], bytes]
 Sleep = Callable[[float], None]
@@ -87,42 +105,54 @@ def http_get(url: str, *, sleep: Sleep = time.sleep, open_url: Callable[..., Any
     raise IngestError(f"GET {url} gave up after {MAX_ATTEMPTS} attempts")
 
 
-def energy_charts_url(delivery_day: date) -> str:
+def energy_charts_url(days: DayRange) -> str:
     """Energy-Charts treats start and end as local delivery days, so one day returns 23 to 25 hours of prices."""
-    query = urlencode({"bzn": BIDDING_ZONE, "start": delivery_day.isoformat(), "end": delivery_day.isoformat()})
+    query = urlencode({"bzn": BIDDING_ZONE, "start": days.first.isoformat(), "end": days.last.isoformat()})
     return f"{ENERGY_CHARTS_PRICE_URL}?{query}"
 
 
-def open_meteo_url(site: WeatherSite, utc_day: date) -> str:
+def open_meteo_url(site: WeatherSite, days: DayRange) -> str:
+    """Asks for the forecast each hour had two days before it, which is known by the 10:00 cutoff (section 7)."""
     query = urlencode(
         {
             "latitude": site.latitude,
             "longitude": site.longitude,
-            "start_date": utc_day.isoformat(),
-            "end_date": utc_day.isoformat(),
-            "hourly": ",".join(WEATHER_VARIABLES),
+            "start_date": days.first.isoformat(),
+            "end_date": days.last.isoformat(),
+            "hourly": ",".join(f"{variable}{FORECAST_LEAD_SUFFIX}" for variable in WEATHER_VARIABLES),
             "timezone": "UTC",
         }
     )
-    return f"{OPEN_METEO_HISTORICAL_FORECAST_URL}?{query}"
+    return f"{OPEN_METEO_PREVIOUS_RUNS_URL}?{query}"
 
 
-def price_file(volume_root: Path, delivery_day: date) -> Path:
-    return volume_root / "energy_charts" / "price" / f"bzn={BIDDING_ZONE}" / f"dt={delivery_day.isoformat()}.json"
+def price_file(volume_root: Path, days: DayRange) -> Path:
+    return volume_root / "energy_charts" / "price" / f"bzn={BIDDING_ZONE}" / days.file_name
 
 
-def weather_file(volume_root: Path, site: WeatherSite, utc_day: date) -> Path:
-    return volume_root / "open_meteo" / "historical_forecast" / f"site={site.name}" / f"dt={utc_day.isoformat()}.json"
+def weather_file(volume_root: Path, site: WeatherSite, days: DayRange) -> Path:
+    return volume_root / "open_meteo" / "previous_runs_day2" / f"site={site.name}" / days.file_name
 
 
-def validate_weather(body: bytes, url: str) -> None:
+def delivery_days_with_prices(body: bytes, url: str) -> set[date]:
+    try:
+        hourly = parse_day_ahead_prices(json.loads(body), allow_empty=True)
+    except (ValueError, EnergyChartsResponseError) as error:
+        raise IngestError(f"{url} returned an unusable response: {error}") from error
+    return {row.local_hour_start.date() for row in hourly}
+
+
+def validate_weather(body: bytes, url: str, days: DayRange) -> None:
     try:
         hourly = json.loads(body)["hourly"]
-        lengths = {len(hourly[variable]) for variable in ("time", *WEATHER_VARIABLES)}
+        series = [hourly["time"], *(hourly[f"{variable}{FORECAST_LEAD_SUFFIX}"] for variable in WEATHER_VARIABLES)]
+        covered = {date.fromisoformat(timestamp[:10]) for timestamp in hourly["time"]}
     except (ValueError, KeyError, TypeError) as error:
         raise IngestError(f"{url} did not return the expected hourly weather") from error
-    if len(lengths) != 1 or not lengths.pop():
-        raise IngestError(f"{url} returned hourly series of different or zero length")
+    if len({len(values) for values in series}) != 1:
+        raise IngestError(f"{url} returned hourly series of different lengths")
+    if missing := set(days.days()) - covered:
+        raise IngestError(f"{url} has no weather for {', '.join(sorted(day.isoformat() for day in missing))}")
 
 
 def write_file(path: Path, body: bytes) -> None:
@@ -133,55 +163,53 @@ def write_file(path: Path, body: bytes) -> None:
 @dataclass(frozen=True)
 class IngestResult:
     written: tuple[Path, ...]
-    not_yet_published: tuple[date, ...]
+    not_yet_published: tuple[DayRange, ...]
 
 
 def ingest(
     volume_root: Path,
-    price_days: Sequence[date],
-    weather_days: Sequence[date],
+    price_ranges: Sequence[DayRange],
+    weather_ranges: Sequence[DayRange],
     *,
     required_price_days: frozenset[date],
     fetch: Fetch | None = None,
     sleep: Sleep | None = None,
 ) -> IngestResult:
-    """Fetches, validates and writes every requested day.
+    """Fetches, validates and writes every requested range.
 
-    A price day without prices, whether the API answers 404 or an empty list, is an error if it is in
-    `required_price_days`; otherwise it is reported as not yet published and nothing is written for it, so an earlier,
-    complete file is never replaced by an empty one.
+    A price range that comes back without prices, whether the API answers 404 or an empty list, is reported as not yet
+    published and nothing is written for it, unless it holds a required day: then the run fails. A range that has
+    prices must have them for every required day it covers, so a partial response never passes as complete.
     """
     fetch = fetch or http_get
     sleep = sleep or time.sleep
     written: list[Path] = []
-    not_yet_published: list[date] = []
+    not_yet_published: list[DayRange] = []
 
-    for delivery_day in price_days:
-        url = energy_charts_url(delivery_day)
+    for days in price_ranges:
+        url = energy_charts_url(days)
         try:
             body = fetch(url)
         except SourceNotFoundError:
             body = b""
-        try:
-            hourly = parse_day_ahead_prices(json.loads(body), allow_empty=True) if body else []
-        except (ValueError, EnergyChartsResponseError) as error:
-            raise IngestError(f"{url} returned an unusable response: {error}") from error
-        if not hourly:
-            if delivery_day in required_price_days:
-                raise IngestError(f"no prices published for {delivery_day.isoformat()}")
-            not_yet_published.append(delivery_day)
-        else:
-            path = price_file(volume_root, delivery_day)
+        covered = delivery_days_with_prices(body, url) if body else set()
+        required_here = {day for day in days.days() if day in required_price_days}
+        if missing := sorted(required_here - covered):
+            raise IngestError(f"no prices published for {', '.join(day.isoformat() for day in missing)}")
+        if covered:
+            path = price_file(volume_root, days)
             write_file(path, body)
             written.append(path)
+        else:
+            not_yet_published.append(days)
         sleep(ENERGY_CHARTS_PAUSE_SECONDS)
 
-    for utc_day in weather_days:
+    for days in weather_ranges:
         for site in WEATHER_SITES:
-            url = open_meteo_url(site, utc_day)
+            url = open_meteo_url(site, days)
             body = fetch(url)
-            validate_weather(body, url)
-            path = weather_file(volume_root, site, utc_day)
+            validate_weather(body, url, days)
+            path = weather_file(volume_root, site, days)
             write_file(path, body)
             written.append(path)
             sleep(OPEN_METEO_PAUSE_SECONDS)
@@ -189,36 +217,45 @@ def ingest(
     return IngestResult(written=tuple(written), not_yet_published=tuple(not_yet_published))
 
 
-def days_between(first: date, last: date) -> list[date]:
+def month_ranges(first: date, last: date) -> list[DayRange]:
+    """Splits a backfill into calendar months, so each source is asked once per month."""
     if last < first:
         raise IngestError(f"{last.isoformat()} is before {first.isoformat()}")
-    return [first + timedelta(days=offset) for offset in range((last - first).days + 1)]
+    ranges = []
+    start = first
+    while start <= last:
+        next_month = (start.replace(day=1) + timedelta(days=DAYS_PAST_ANY_MONTH_START)).replace(day=1)
+        end = min(next_month - timedelta(days=1), last)
+        ranges.append(DayRange(start, end))
+        start = end + timedelta(days=1)
+    return ranges
 
 
-def plan_days(
+def plan_ranges(
     now: datetime,
     *,
     start: date | None,
     end: date | None,
     require_tomorrow_from_hour: int,
-) -> tuple[list[date], list[date], frozenset[date]]:
-    """Decides which days a run fetches: a backfill range if given, otherwise yesterday, today and tomorrow.
+) -> tuple[list[DayRange], list[DayRange], frozenset[date]]:
+    """Decides what a run fetches: monthly ranges for a backfill, otherwise yesterday, today and tomorrow, one by one.
 
-    Weather comes from archived forecasts, so it is fetched up to today only. Tomorrow's prices are required once the
-    local hour has reached `require_tomorrow_from_hour`, which makes the afternoon run strict and the midday run not.
+    Every price day up to today is required. Tomorrow is required once the local hour has reached
+    `require_tomorrow_from_hour`, which makes the afternoon run strict and the midday run not. Weather covers the same
+    days as prices, tomorrow included, because the two-day-old forecast for tomorrow already exists.
     """
-    today = now.astimezone(TARIFF_TIMEZONE).date()
+    local_now = now.astimezone(TARIFF_TIMEZONE)
+    today = local_now.date()
     tomorrow = today + timedelta(days=1)
     if start is not None or end is not None:
-        price_days = days_between(start or today, end or today)
-        required = frozenset(day for day in price_days if day <= today)
+        ranges = month_ranges(start or today, end or today)
     else:
-        price_days = days_between(today - timedelta(days=1), tomorrow)
-        required = frozenset({today - timedelta(days=1), today})
-        if now.astimezone(TARIFF_TIMEZONE).hour >= require_tomorrow_from_hour:
-            required |= {tomorrow}
-    weather_days = [day for day in price_days if day <= today]
-    return price_days, weather_days, required
+        ranges = [DayRange(day, day) for day in (today - timedelta(days=1), today, tomorrow)]
+    all_days = [day for days in ranges for day in days.days()]
+    required = {day for day in all_days if day <= today}
+    if tomorrow in all_days and local_now.hour >= require_tomorrow_from_hour:
+        required.add(tomorrow)
+    return ranges, ranges, frozenset(required)
 
 
 def main(argv: Sequence[str] | None = None, *, now: datetime | None = None) -> int:
@@ -229,22 +266,17 @@ def main(argv: Sequence[str] | None = None, *, now: datetime | None = None) -> i
     parser.add_argument("--require-tomorrow-from-hour", type=int, default=DEFAULT_REQUIRE_TOMORROW_FROM_HOUR)
     arguments = parser.parse_args(argv)
 
-    price_days, weather_days, required = plan_days(
+    price_ranges, weather_ranges, required = plan_ranges(
         now or datetime.now(TARIFF_TIMEZONE),
         start=arguments.start,
         end=arguments.end,
         require_tomorrow_from_hour=arguments.require_tomorrow_from_hour,
     )
-    result = ingest(
-        arguments.volume_root,
-        price_days,
-        weather_days,
-        required_price_days=required,
-    )
+    result = ingest(arguments.volume_root, price_ranges, weather_ranges, required_price_days=required)
 
     print(f"wrote {len(result.written)} files under {arguments.volume_root}")
-    for delivery_day in result.not_yet_published:
-        print(f"not published yet: {delivery_day.isoformat()}")
+    for days in result.not_yet_published:
+        print(f"not published yet: {days.first.isoformat()} to {days.last.isoformat()}")
     return 0
 
 

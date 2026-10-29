@@ -1,57 +1,89 @@
 import io
 import json
 import urllib.error
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from email.message import Message
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from price_passport.energy_charts import TARIFF_TIMEZONE
+from price_passport.energy_charts import EXPECTED_UNIT, QUARTER_HOUR_SECONDS, TARIFF_TIMEZONE
 from price_passport.ingest import (
     DEFAULT_RETRY_AFTER_SECONDS,
+    FORECAST_LEAD_SUFFIX,
     LONGEST_RETRY_AFTER_SECONDS,
     MAX_ATTEMPTS,
     WEATHER_SITES,
     WEATHER_VARIABLES,
+    DayRange,
     IngestError,
     SourceNotFoundError,
     energy_charts_url,
     http_get,
     ingest,
     main,
-    plan_days,
+    month_ranges,
+    open_meteo_url,
+    plan_ranges,
     price_file,
     retry_after_seconds,
     weather_file,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures"
 TODAY = date(2026, 10, 27)
 YESTERDAY = date(2026, 10, 26)
 TOMORROW = date(2026, 10, 28)
 MIDDAY_RUN = datetime(2026, 10, 27, 13, 40, tzinfo=TARIFF_TIMEZONE)
 AFTERNOON_RUN = datetime(2026, 10, 27, 16, 40, tzinfo=TARIFF_TIMEZONE)
 REQUIRE_FROM_HOUR = 15
-HOURS_PER_DAY = 24
 RETRY_AFTER_SEEN_ON_29_OCT = 22
 TOO_MANY_REQUESTS = 429
 NOT_FOUND = 404
 SERVER_ERROR = 500
+HOURS_PER_UTC_DAY = 24
 
 
-def price_body() -> bytes:
-    return (FIXTURES / "energy_charts_price_quarter_hourly_2026-10-27.json").read_bytes()
+def single(day: date) -> DayRange:
+    return DayRange(day, day)
 
 
-def empty_price_body() -> bytes:
-    return json.dumps({"unit": "EUR / MWh", "unix_seconds": [], "price": [], "deprecated": False}).encode()
+def local_midnight_epoch(day: date) -> int:
+    return int(datetime.combine(day, time(), tzinfo=TARIFF_TIMEZONE).timestamp())
 
 
-def weather_body() -> bytes:
-    hourly = {"time": [f"2026-10-27T{hour:02d}:00" for hour in range(HOURS_PER_DAY)]}
-    hourly |= {variable: [1.0] * HOURS_PER_DAY for variable in WEATHER_VARIABLES}
+def price_response(days: DayRange, *, missing: frozenset[date] = frozenset()) -> bytes:
+    """Quarter-hourly prices from local midnight of the first day to local midnight after the last, like the API."""
+    timestamps: list[int] = []
+    for day in days.days():
+        if day not in missing:
+            timestamps += range(
+                local_midnight_epoch(day), local_midnight_epoch(day + timedelta(days=1)), QUARTER_HOUR_SECONDS
+            )
+    prices = [1.0] * len(timestamps)
+    return json.dumps(
+        {"unit": EXPECTED_UNIT, "unix_seconds": timestamps, "price": prices, "deprecated": False}
+    ).encode()
+
+
+def weather_response(days: DayRange) -> bytes:
+    times = [
+        (datetime.combine(day, time(), tzinfo=UTC) + timedelta(hours=hour)).strftime("%Y-%m-%dT%H:%M")
+        for day in days.days()
+        for hour in range(HOURS_PER_UTC_DAY)
+    ]
+    hourly: dict[str, list] = {"time": times}
+    hourly |= {f"{variable}{FORECAST_LEAD_SUFFIX}": [1.0] * len(times) for variable in WEATHER_VARIABLES}
     return json.dumps({"hourly": hourly}).encode()
+
+
+def requested_range(url: str) -> DayRange:
+    query = parse_qs(urlparse(url).query)
+    first = query.get("start", query.get("start_date"))
+    last = query.get("end", query.get("end_date"))
+    assert first
+    assert last
+    return DayRange(date.fromisoformat(first[0]), date.fromisoformat(last[0]))
 
 
 class FakeSources:
@@ -64,13 +96,12 @@ class FakeSources:
 
     def __call__(self, url: str) -> bytes:
         self.requested.append(url)
-        if "energy-charts" in url:
-            if any(day.isoformat() in url for day in self.unpublished):
-                if self.unpublished_as_empty:
-                    return empty_price_body()
-                raise SourceNotFoundError(f"GET {url} found nothing (HTTP 404)")
-            return price_body()
-        return weather_body()
+        days = requested_range(url)
+        if "energy-charts" not in url:
+            return weather_response(days)
+        if set(days.days()) <= self.unpublished and not self.unpublished_as_empty:
+            raise SourceNotFoundError(f"GET {url} found nothing (HTTP 404)")
+        return price_response(days, missing=self.unpublished)
 
 
 def no_sleep(seconds: float) -> None:
@@ -150,54 +181,65 @@ def test_retry_after_is_read_defensively(header, expected):
     assert retry_after_seconds(header) == expected
 
 
-def test_a_run_writes_one_file_per_source_site_and_day(tmp_path):
-    sources = FakeSources()
+def test_a_daily_run_writes_one_file_per_source_site_and_day(tmp_path):
+    ranges = [single(YESTERDAY), single(TODAY)]
 
-    result = ingest(tmp_path, [YESTERDAY, TODAY], [YESTERDAY, TODAY], required_price_days=frozenset(), fetch=sources)
+    result = ingest(tmp_path, ranges, ranges, required_price_days=frozenset({YESTERDAY, TODAY}), fetch=FakeSources())
 
-    expected = [price_file(tmp_path, day) for day in (YESTERDAY, TODAY)]
-    expected += [weather_file(tmp_path, site, day) for day in (YESTERDAY, TODAY) for site in WEATHER_SITES]
+    expected = [price_file(tmp_path, days) for days in ranges]
+    expected += [weather_file(tmp_path, site, days) for days in ranges for site in WEATHER_SITES]
     assert list(result.written) == expected
-    assert all(path.read_bytes() for path in expected)
+    assert price_file(tmp_path, single(TODAY)).name == "range=2026-10-27_2026-10-27.json"
 
 
 def test_a_repeated_run_leaves_the_same_files(tmp_path):
-    ingest(tmp_path, [TODAY], [TODAY], required_price_days=frozenset(), fetch=FakeSources())
+    ranges = [single(TODAY)]
+    ingest(tmp_path, ranges, ranges, required_price_days=frozenset({TODAY}), fetch=FakeSources())
     first = {path: path.read_bytes() for path in tmp_path.rglob("*.json")}
 
-    ingest(tmp_path, [TODAY], [TODAY], required_price_days=frozenset(), fetch=FakeSources())
+    ingest(tmp_path, ranges, ranges, required_price_days=frozenset({TODAY}), fetch=FakeSources())
 
     assert {path: path.read_bytes() for path in tmp_path.rglob("*.json")} == first
 
 
-def test_an_unpublished_optional_day_is_reported_and_never_overwrites_a_file(tmp_path):
-    ingest(tmp_path, [TOMORROW], [], required_price_days=frozenset(), fetch=FakeSources())
-    complete = price_file(tmp_path, TOMORROW).read_bytes()
+@pytest.mark.parametrize("unpublished_as_empty", [False, True], ids=["404", "empty list"])
+def test_an_unpublished_optional_day_is_reported_and_never_overwrites_a_file(tmp_path, unpublished_as_empty):
+    ingest(tmp_path, [single(TOMORROW)], [], required_price_days=frozenset(), fetch=FakeSources())
+    complete = price_file(tmp_path, single(TOMORROW)).read_bytes()
+    sources = FakeSources(frozenset({TOMORROW}), unpublished_as_empty=unpublished_as_empty)
 
-    result = ingest(tmp_path, [TOMORROW], [], required_price_days=frozenset(), fetch=FakeSources(frozenset({TOMORROW})))
+    result = ingest(tmp_path, [single(TOMORROW)], [], required_price_days=frozenset(), fetch=sources)
 
-    assert result.not_yet_published == (TOMORROW,)
-    assert price_file(tmp_path, TOMORROW).read_bytes() == complete
-
-
-def test_an_empty_answer_for_an_optional_day_counts_as_not_published(tmp_path):
-    sources = FakeSources(frozenset({TOMORROW}), unpublished_as_empty=True)
-
-    result = ingest(tmp_path, [TOMORROW], [], required_price_days=frozenset(), fetch=sources)
-
-    assert result.not_yet_published == (TOMORROW,)
-    assert not price_file(tmp_path, TOMORROW).exists()
+    assert result.not_yet_published == (single(TOMORROW),)
+    assert price_file(tmp_path, single(TOMORROW)).read_bytes() == complete
 
 
 def test_an_unpublished_required_day_fails_the_run(tmp_path):
     with pytest.raises(IngestError, match="no prices published for 2026-10-28"):
         ingest(
             tmp_path,
-            [TOMORROW],
+            [single(TOMORROW)],
             [],
             required_price_days=frozenset({TOMORROW}),
             fetch=FakeSources(frozenset({TOMORROW})),
         )
+
+
+def test_a_month_missing_one_required_day_fails_instead_of_passing_as_complete(tmp_path):
+    october = DayRange(date(2026, 10, 1), date(2026, 10, 27))
+    sources = FakeSources(frozenset({date(2026, 10, 25)}), unpublished_as_empty=True)
+
+    with pytest.raises(IngestError, match="no prices published for 2026-10-25"):
+        ingest(tmp_path, [october], [], required_price_days=frozenset(october.days()), fetch=sources)
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_a_month_across_the_clock_change_is_complete(tmp_path):
+    october = DayRange(date(2026, 10, 1), date(2026, 10, 31))
+
+    result = ingest(tmp_path, [october], [october], required_price_days=frozenset(october.days()), fetch=FakeSources())
+
+    assert price_file(tmp_path, october) in result.written
 
 
 @pytest.mark.parametrize(
@@ -207,61 +249,80 @@ def test_an_unpublished_required_day_fails_the_run(tmp_path):
 )
 def test_an_unusable_price_response_is_not_written(tmp_path, body):
     with pytest.raises(IngestError, match="unusable response"):
-        ingest(tmp_path, [TODAY], [], required_price_days=frozenset(), fetch=lambda url: body)
+        ingest(tmp_path, [single(TODAY)], [], required_price_days=frozenset(), fetch=lambda url: body)
     assert not list(tmp_path.rglob("*.json"))
 
 
 @pytest.mark.parametrize(
     "body",
-    [b"{}", json.dumps({"hourly": {"time": ["2026-10-27T00:00"], "temperature_2m": []}}).encode()],
-    ids=["no hourly block", "series of different length"],
+    [
+        b"{}",
+        json.dumps({"hourly": {"time": ["2026-10-27T00:00"], "temperature_2m_previous_day2": []}}).encode(),
+        weather_response(single(YESTERDAY)),
+    ],
+    ids=["no hourly block", "series of different length", "a different day"],
 )
 def test_an_unusable_weather_response_is_not_written(tmp_path, body):
     with pytest.raises(IngestError):
-        ingest(tmp_path, [], [TODAY], required_price_days=frozenset(), fetch=lambda url: body)
+        ingest(tmp_path, [], [single(TODAY)], required_price_days=frozenset(), fetch=lambda url: body)
     assert not list(tmp_path.rglob("*.json"))
 
 
-def test_the_midday_run_fetches_three_days_and_does_not_require_tomorrow():
-    price_days, weather_days, required = plan_days(
+def test_the_midday_run_fetches_three_single_days_and_does_not_require_tomorrow():
+    price_ranges, weather_ranges, required = plan_ranges(
         MIDDAY_RUN, start=None, end=None, require_tomorrow_from_hour=REQUIRE_FROM_HOUR
     )
 
-    assert price_days == [YESTERDAY, TODAY, TOMORROW]
-    assert weather_days == [YESTERDAY, TODAY]
+    assert price_ranges == [single(YESTERDAY), single(TODAY), single(TOMORROW)]
+    assert weather_ranges == price_ranges
     assert required == {YESTERDAY, TODAY}
 
 
 def test_the_afternoon_run_requires_tomorrow():
-    _, _, required = plan_days(AFTERNOON_RUN, start=None, end=None, require_tomorrow_from_hour=REQUIRE_FROM_HOUR)
+    _, _, required = plan_ranges(AFTERNOON_RUN, start=None, end=None, require_tomorrow_from_hour=REQUIRE_FROM_HOUR)
 
     assert TOMORROW in required
 
 
-def test_a_backfill_requires_every_day_up_to_today():
-    price_days, weather_days, required = plan_days(
+def test_a_backfill_is_split_into_calendar_months():
+    ranges = month_ranges(date(2024, 11, 15), date(2025, 2, 3))
+
+    assert ranges == [
+        DayRange(date(2024, 11, 15), date(2024, 11, 30)),
+        DayRange(date(2024, 12, 1), date(2024, 12, 31)),
+        DayRange(date(2025, 1, 1), date(2025, 1, 31)),
+        DayRange(date(2025, 2, 1), date(2025, 2, 3)),
+    ]
+
+
+def test_a_backfill_requires_every_day_up_to_today_but_not_tomorrow_at_midday():
+    price_ranges, _, required = plan_ranges(
         MIDDAY_RUN, start=date(2026, 10, 25), end=TOMORROW, require_tomorrow_from_hour=REQUIRE_FROM_HOUR
     )
 
-    assert price_days[0] == date(2026, 10, 25)
-    assert weather_days[-1] == TODAY
-    assert TOMORROW not in required
+    assert price_ranges == [DayRange(date(2026, 10, 25), TOMORROW)]
     assert TODAY in required
+    assert TOMORROW not in required
 
 
 def test_a_backfill_that_ends_before_it_starts_is_refused():
     with pytest.raises(IngestError, match="is before"):
-        plan_days(MIDDAY_RUN, start=TODAY, end=YESTERDAY, require_tomorrow_from_hour=REQUIRE_FROM_HOUR)
+        plan_ranges(MIDDAY_RUN, start=TODAY, end=YESTERDAY, require_tomorrow_from_hour=REQUIRE_FROM_HOUR)
 
 
-def test_the_price_url_asks_for_one_local_delivery_day():
-    assert energy_charts_url(TODAY).endswith("bzn=DE-LU&start=2026-10-27&end=2026-10-27")
+def test_the_urls_ask_for_the_requested_days():
+    october = DayRange(date(2026, 10, 1), date(2026, 10, 31))
+
+    assert energy_charts_url(october).endswith("bzn=DE-LU&start=2026-10-01&end=2026-10-31")
+    weather_url = open_meteo_url(WEATHER_SITES[0], october)
+    assert "start_date=2026-10-01&end_date=2026-10-31" in weather_url
+    assert "temperature_2m_previous_day2" in weather_url
 
 
-def test_main_runs_end_to_end_against_fake_sources(tmp_path, monkeypatch, capsys):
+def test_main_runs_end_to_end_against_fake_sources(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setattr("price_passport.ingest.http_get", FakeSources(frozenset({TOMORROW})))
 
     exit_code = main(["--volume-root", str(tmp_path)], now=MIDDAY_RUN)
 
     assert exit_code == 0
-    assert "not published yet: 2026-10-28" in capsys.readouterr().out
+    assert "not published yet: 2026-10-28 to 2026-10-28" in capsys.readouterr().out

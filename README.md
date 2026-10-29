@@ -30,9 +30,10 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 
 - [x] Day-ahead price parser: hourly and 15-minute responses, clock-change days, negative prices, partial hours
   flagged, malformed responses rejected (34 tests, 7 of them on 5 real API responses)
-- [x] Ingestion into a Unity Catalog Volume: Databricks job twice a day, deployed and running, two-year backfill
-- [x] Silver pipeline in SQL: hourly prices with completeness flags, hourly weather per site, checked against the
-  calendar
+- [x] Ingestion into a Unity Catalog Volume: Databricks job twice a day, deployed and running; two-year backfill
+  (1 Nov 2024 to 29 Oct 2026) in monthly files
+- [x] Silver pipeline in SQL: 728 delivery days, every one with the hours of its local day (23, 24 or 25), and
+  17,472 hours of two-day-ahead weather forecasts for each of five sites
 - [ ] Gold features
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query

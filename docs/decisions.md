@@ -61,8 +61,13 @@ work runs: a scheduled job on serverless compute that writes the unchanged respo
   and a repeated run changes nothing (checked on the first run: the same checksum twice). A day that is not published
   yet is reported, never written as an empty file. Energy-Charts answers such a day with HTTP 404 and "No content
   available", which the first run on Databricks found at 12:01; both a 404 and an empty list count as not published.
-- Weather comes from Open-Meteo's archived forecasts for five sites across Germany, fetched up to today, one file per
-  site and UTC day. Forecasts for tomorrow are fetched at scoring time, before the cutoff (section 7).
+- Every API call becomes one file named after the days it covers (`range=<first>_<last>.json`). A daily run writes
+  one file per day; a backfill one file per calendar month, because Energy-Charts rate-limits single-day calls to
+  about one every 25 seconds (26 days in 11 minutes on the first attempt), while a month is one call. The two-year
+  backfill took 7 minutes. Silver keeps each timestamp from the most recently written file, so overlapping files
+  never count twice.
+- Weather is Open-Meteo's forecast for five sites across Germany as it stood two days before each hour
+  (`*_previous_day2` from the Previous Runs API), fetched up to tomorrow (section 7).
 - The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header (22 seconds when first seen on
   29 Oct 2026); the job waits as told, and pauses between requests anyway.
 - If Databricks narrows the trusted domains, the fallback is the original design: a scheduled GitHub Action that
@@ -120,9 +125,12 @@ covers the hours of D. `horizon_hours` is the start of the priced hour minus `fo
 38 on the day the clocks go back and 36 on the day they go forward.
 
 Features may only use what was known at 10:00 on D-1: day-ahead prices up to and including D-1, calendar features, and
-weather forecasts issued before the cutoff. Training uses Open-Meteo's archived historical forecasts rather than
-observed weather, so the model trains on the same kind of input it is scored on. Weather comes from several sites
-across Germany rather than one city, since the price follows national wind, solar and load.
+weather forecasts issued before the cutoff. Weather is the forecast each hour had two days earlier (Open-Meteo's
+`previous_day2`): for any hour of D that forecast run started no later than 23:00 on D-2, so it existed by the cutoff.
+The one-day-old forecast would leak for the late hours of D, and the stitched "historical forecast" series is only a few
+hours old for every hour. The same `previous_day2` series is available for tomorrow, so training and scoring use exactly
+the same feature. Weather comes from five sites across Germany rather than one city, since the price follows national
+wind, solar and load.
 
 ## 8. Baseline and promotion gate
 
