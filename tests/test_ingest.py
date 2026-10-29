@@ -15,6 +15,7 @@ from price_passport.ingest import (
     WEATHER_SITES,
     WEATHER_VARIABLES,
     IngestError,
+    SourceNotFoundError,
     energy_charts_url,
     http_get,
     ingest,
@@ -36,6 +37,7 @@ HOURS_PER_DAY = 24
 RETRY_AFTER_SEEN_ON_29_OCT = 22
 TOO_MANY_REQUESTS = 429
 NOT_FOUND = 404
+SERVER_ERROR = 500
 
 
 def price_body() -> bytes:
@@ -53,14 +55,21 @@ def weather_body() -> bytes:
 
 
 class FakeSources:
-    def __init__(self, unpublished: frozenset[date] = frozenset()) -> None:
+    """Answers like the real APIs: Energy-Charts returns 404 for a delivery day that is not published yet."""
+
+    def __init__(self, unpublished: frozenset[date] = frozenset(), *, unpublished_as_empty: bool = False) -> None:
         self.unpublished = unpublished
+        self.unpublished_as_empty = unpublished_as_empty
         self.requested: list[str] = []
 
     def __call__(self, url: str) -> bytes:
         self.requested.append(url)
         if "energy-charts" in url:
-            return empty_price_body() if any(day.isoformat() in url for day in self.unpublished) else price_body()
+            if any(day.isoformat() in url for day in self.unpublished):
+                if self.unpublished_as_empty:
+                    return empty_price_body()
+                raise SourceNotFoundError(f"GET {url} found nothing (HTTP 404)")
+            return price_body()
         return weather_body()
 
 
@@ -104,10 +113,18 @@ def test_a_429_is_retried_after_the_wait_the_server_asked_for():
     assert waits == [RETRY_AFTER_SEEN_ON_29_OCT]
 
 
-def test_other_http_errors_fail_at_once():
+def test_a_404_is_reported_as_not_found_at_once():
     opener = ScriptedOpener(http_error(NOT_FOUND))
 
-    with pytest.raises(IngestError, match="HTTP 404"):
+    with pytest.raises(SourceNotFoundError, match="HTTP 404"):
+        http_get("https://example.test", sleep=no_sleep, open_url=opener)
+    assert opener.calls == 1
+
+
+def test_other_http_errors_fail_at_once():
+    opener = ScriptedOpener(http_error(SERVER_ERROR))
+
+    with pytest.raises(IngestError, match="HTTP 500"):
         http_get("https://example.test", sleep=no_sleep, open_url=opener)
     assert opener.calls == 1
 
@@ -161,6 +178,15 @@ def test_an_unpublished_optional_day_is_reported_and_never_overwrites_a_file(tmp
 
     assert result.not_yet_published == (TOMORROW,)
     assert price_file(tmp_path, TOMORROW).read_bytes() == complete
+
+
+def test_an_empty_answer_for_an_optional_day_counts_as_not_published(tmp_path):
+    sources = FakeSources(frozenset({TOMORROW}), unpublished_as_empty=True)
+
+    result = ingest(tmp_path, [TOMORROW], [], required_price_days=frozenset(), fetch=sources)
+
+    assert result.not_yet_published == (TOMORROW,)
+    assert not price_file(tmp_path, TOMORROW).exists()
 
 
 def test_an_unpublished_required_day_fails_the_run(tmp_path):

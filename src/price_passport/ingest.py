@@ -56,6 +56,10 @@ class IngestError(RuntimeError):
     """A source could not be fetched, or returned something that must not be stored."""
 
 
+class SourceNotFoundError(IngestError):
+    """The source answered 404. Energy-Charts does this for a delivery day whose auction is not published yet."""
+
+
 def retry_after_seconds(header: str | None) -> float:
     """Reads a `Retry-After` header given in seconds; an HTTP date or garbage falls back to a default wait."""
     try:
@@ -73,6 +77,8 @@ def http_get(url: str, *, sleep: Sleep = time.sleep, open_url: Callable[..., Any
                 body: bytes = response.read()
                 return body
         except urllib.error.HTTPError as error:
+            if error.code == HTTPStatus.NOT_FOUND:
+                raise SourceNotFoundError(f"GET {url} found nothing (HTTP 404)") from error
             if error.code != HTTPStatus.TOO_MANY_REQUESTS or attempt == MAX_ATTEMPTS:
                 raise IngestError(f"GET {url} failed with HTTP {error.code} after {attempt} attempts") from error
             sleep(retry_after_seconds(error.headers.get("Retry-After")))
@@ -141,8 +147,9 @@ def ingest(
 ) -> IngestResult:
     """Fetches, validates and writes every requested day.
 
-    A price day without prices is an error if it is in `required_price_days`; otherwise it is reported as not yet
-    published and nothing is written for it, so an earlier, complete file is never replaced by an empty one.
+    A price day without prices, whether the API answers 404 or an empty list, is an error if it is in
+    `required_price_days`; otherwise it is reported as not yet published and nothing is written for it, so an earlier,
+    complete file is never replaced by an empty one.
     """
     fetch = fetch or http_get
     sleep = sleep or time.sleep
@@ -151,9 +158,12 @@ def ingest(
 
     for delivery_day in price_days:
         url = energy_charts_url(delivery_day)
-        body = fetch(url)
         try:
-            hourly = parse_day_ahead_prices(json.loads(body), allow_empty=True)
+            body = fetch(url)
+        except SourceNotFoundError:
+            body = b""
+        try:
+            hourly = parse_day_ahead_prices(json.loads(body), allow_empty=True) if body else []
         except (ValueError, EnergyChartsResponseError) as error:
             raise IngestError(f"{url} returned an unusable response: {error}") from error
         if not hourly:
