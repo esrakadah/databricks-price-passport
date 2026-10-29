@@ -41,7 +41,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 - [ ] Asset Bundle deployment from CI
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come
-- [ ] Flutter web passport
+- [ ] Flutter web passport: today and tomorrow in Berlin time with a live or snapshot badge (`app/`); hosting and
+  the passport sheet still to come
 - [ ] Genkit Dart agent with approval-gated overrides
 
 ## Run the checks
