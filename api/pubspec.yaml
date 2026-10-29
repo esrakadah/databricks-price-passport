@@ -1,0 +1,17 @@
+name: price_passport_api
+description: Serves Price Passport prices from Databricks to the Flutter web app.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  http: ^1.4.0
+  logging: ^1.3.0
+  shelf: ^1.4.3
+  shelf_router: ^1.1.5
+
+dev_dependencies:
+  test: ^1.33.0
+  very_good_analysis: ^10.3.0

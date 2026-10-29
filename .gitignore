@@ -18,3 +18,4 @@ dist/
 .idea/
 .vscode/
 mlruns/
+.dart_tool/
