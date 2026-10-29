@@ -1,0 +1,20 @@
+name: price_passport_app
+description: "Price Passport web app, tomorrow's hourly energy prices and where each one came from."
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^10.3.0
+
+flutter:
+  uses-material-design: true
