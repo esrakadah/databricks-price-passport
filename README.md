@@ -39,7 +39,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI
-- [ ] Dart API on Cloud Run
+- [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
+  fallback and deployment still to come
 - [ ] Flutter web passport
 - [ ] Genkit Dart agent with approval-gated overrides
 

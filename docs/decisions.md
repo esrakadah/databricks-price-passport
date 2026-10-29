@@ -39,7 +39,7 @@ What has been verified on this workspace so far, and how:
 |---|---|
 | Workspace service principals | verified 29 Oct 2026, created with `databricks service-principals create` |
 | Workspace-level OAuth secrets for them | verified 29 Oct 2026 with `databricks service-principal-secrets-proxy create`, deleted again with `delete`; none remain |
-| Grants for `price-passport-reader` | not applied yet; applied with the Cloud Run service |
+| Grants for `price-passport-reader` | applied on dev 29 Oct 2026: `USE CATALOG`, `USE SCHEMA`, `SELECT`, `CAN USE` on the warehouse, plus the `databricks-sql-access` entitlement, without which every statement got HTTP 403; the Dart API then read a delivery day live |
 | Serverless environment version with Python 3.12 | verified 29 Oct 2026: environment version 4 runs Python 3.12.3 |
 | Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
 | Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
