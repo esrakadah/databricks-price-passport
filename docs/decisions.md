@@ -44,7 +44,7 @@ What has been verified on this workspace so far, and how:
 | Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
 | Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
 | Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
-| Whether "one active pipeline per type" counts deployed or running pipelines | to check with the first pipeline |
+| A serverless SQL pipeline next to a job on Free Edition | verified 29 Oct 2026: `silver` deployed and refreshed while a backfill job ran |
 
 ## 3. Ingestion runs as a Databricks job (changed 29 Oct 2026)
 
@@ -58,7 +58,9 @@ work runs: a scheduled job on serverless compute that writes the unchanged respo
   are out, in summer and winter alike. The 13:40 run is best-effort and stays green if tomorrow is not published yet;
   from 15:00 local time a run requires tomorrow, so the 16:40 run fails if tomorrow is missing.
 - Each run fetches yesterday, today and tomorrow and overwrites one file per delivery day, so a missed run heals itself
-  and a repeated run changes nothing. A day that is not published yet is reported, never written as an empty file.
+  and a repeated run changes nothing (checked on the first run: the same checksum twice). A day that is not published
+  yet is reported, never written as an empty file. Energy-Charts answers such a day with HTTP 404 and "No content
+  available", which the first run on Databricks found at 12:01; both a 404 and an empty list count as not published.
 - Weather comes from Open-Meteo's archived forecasts for five sites across Germany, fetched up to today, one file per
   site and UTC day. Forecasts for tomorrow are fetched at scoring time, before the cutoff (section 7).
 - The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header (22 seconds when first seen on
@@ -71,6 +73,11 @@ a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid
 creates federation policies at account level, and Free Edition has no account console.
 
 ## 4. Hours, not quarter-hours
+
+Bronze and silver are materialized views in a SQL pipeline (`pipelines/raw_to_silver.sql`) that re-read the raw
+files on every refresh, so an overwritten file is always seen at its latest content. The SQL mirrors the Python parser,
+which stays the tested reference; `sql/checks/` holds the queries that compare silver with the calendar.
+
 
 The DE-LU day-ahead market moved to 15-minute products with delivery day 1 October 2025. Two years of history mix
 hourly and quarter-hourly prices. The tariff is hourly, so quarter-hours are averaged into the hour they start in.

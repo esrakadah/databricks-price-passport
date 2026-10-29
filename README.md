@@ -30,8 +30,10 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 
 - [x] Day-ahead price parser: hourly and 15-minute responses, clock-change days, negative prices, partial hours
   flagged, malformed responses rejected (34 tests, 7 of them on 5 real API responses)
-- [ ] Ingestion into a Unity Catalog Volume: job, bundle and 22 tests written, first deploy pending
-- [ ] Pipeline and features
+- [x] Ingestion into a Unity Catalog Volume: Databricks job twice a day, deployed and running, two-year backfill
+- [x] Silver pipeline in SQL: hourly prices with completeness flags, hourly weather per site, checked against the
+  calendar
+- [ ] Gold features
 - [ ] MLflow training, registry and promotion gate
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI

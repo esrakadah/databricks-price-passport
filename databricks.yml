@@ -29,6 +29,20 @@ resources:
       volume_type: MANAGED
       comment: Unchanged API responses, one file per source, site and delivery day.
 
+  pipelines:
+    silver:
+      name: price-passport-silver
+      catalog: workspace
+      schema: ${resources.schemas.price_passport.name}
+      serverless: true
+      channel: CURRENT
+      configuration:
+        raw_root: /Volumes/workspace/${resources.schemas.price_passport.name}/raw
+        spark.sql.session.timeZone: UTC
+      libraries:
+        - file:
+            path: ./pipelines/raw_to_silver.sql
+
   jobs:
     ingest:
       name: price-passport-ingest
@@ -48,6 +62,11 @@ resources:
             parameters:
               - --volume-root
               - /Volumes/workspace/${resources.schemas.price_passport.name}/raw
+        - task_key: refresh_silver
+          depends_on:
+            - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver.id}
       environments:
         - environment_key: default
           spec:
