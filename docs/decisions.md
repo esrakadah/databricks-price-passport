@@ -139,6 +139,17 @@ wind, solar and load.
 - A challenger becomes `@champion` only if its MAE on that holdout is at least 2 percent lower than the champion's. A
   tie keeps the champion. Runs also log MAE on the evening hours 17:00 to 21:00, where errors cost most.
 - The 15-minute switch changes how hourly prices are formed, so the market regime is a feature.
+- The holdout is the delivery days 1 August to 28 October 2026 (2,137 hours), and training uses every hour with a
+  price before it. Hours after the holdout are not trained on, so the holdout stays after every candidate's training
+  window. Moving it starts a new series: every run logs `holdout_id`, and the gate only compares runs with the same one.
+- Each run logs the baseline's MAE on the same hours next to its own, so a run's skill is readable without another run.
+  The first two versions on dev (29 Oct 2026, features version 0): the seasonal naive baseline at 52.6 EUR/MWh, 66.4 in
+  the evening hours; a gradient-boosted tree model at 36.5, 50.1 in the evening, 31 percent better.
+- The learned model is scikit-learn's histogram gradient boosting with absolute-error loss and fixed parameters, without
+  early stopping, whose validation split would be drawn at random across time.
+- The feature table is recorded on the run as a Unity Catalog dataset input at its Delta version, and the lineage
+  (`training_data_version`, `holdout_id`, `git_commit`, `package_version`) is set as tags on the run and on the model
+  version, so a passport can be checked from either side.
 
 ## 9. Feature versions that can be read again
 
@@ -159,3 +170,9 @@ parameters. A test pins the hash, so changing a parameter without raising the ve
 Free Edition has one workspace, so dev and prod are schemas in one catalog, selected by the Asset Bundle target, and
 one pipeline is parameterised by target rather than duplicated. Jobs pin a serverless environment version with
 Python 3.12, matching `requires-python`: environment version 4 (Python 3.12.3, checked 29 Oct 2026).
+
+Training and scoring use the packages environment version 4 already ships, read from a probe run on 29 Oct 2026:
+mlflow-skinny 2.22.0, scikit-learn 1.6.1, pandas 2.2.3 and numpy 2.1.3. Nothing is installed over them, so the job
+cannot pull a pandas that the Spark connector in that environment was not built for. The models are logged with the
+same pins and the dev dependencies match them, which a test checks; newer MLflow and scikit-learn come with the next
+environment version, not before. The baseline is logged with the package's own code, so it loads without the wheel.

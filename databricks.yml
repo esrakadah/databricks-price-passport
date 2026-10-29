@@ -29,6 +29,10 @@ resources:
       volume_type: MANAGED
       comment: Unchanged API responses, one file per source, site and delivery day.
 
+  experiments:
+    training:
+      name: /Users/${workspace.current_user.userName}/price-passport-${var.schema}
+
   pipelines:
     silver:
       name: price-passport-silver
@@ -79,6 +83,38 @@ resources:
               - workspace
               - --schema
               - ${resources.schemas.price_passport.name}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - ./dist/*.whl
+
+    train:
+      name: price-passport-train
+      description: Trains one model on the current gold features and registers it in Unity Catalog (decisions section 8).
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: model
+          default: gradient_boosting
+      tasks:
+        - task_key: train
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-train
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+              - --model
+              - "{{job.parameters.model}}"
+              - --experiment-id
+              - ${resources.experiments.training.id}
+              - --git-commit
+              - ${bundle.git.commit}
       environments:
         - environment_key: default
           spec:
