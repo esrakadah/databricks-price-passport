@@ -48,6 +48,13 @@ uv run mypy
 uv run pytest
 ```
 
+## How this is built
+
+Esra Kadah designs the project and makes the decisions recorded in [docs/decisions.md](docs/decisions.md). Much of
+the code is written with Claude Code as a pair programmer, and commits it worked on carry a `Co-Authored-By` line. The
+design and the code also go through review rounds by independent AI reviewers whose findings are fixed in the open;
+every change still has to pass the tests, type checks and CI before it lands.
+
 ## Data and attribution
 
 - Day-ahead prices for the DE-LU bidding zone: Bundesnetzagentur | SMARD.de, via the
