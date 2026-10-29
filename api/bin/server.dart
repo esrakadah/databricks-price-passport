@@ -9,6 +9,9 @@ import 'package:shelf/shelf_io.dart' as io;
 /// Cloud Run sets `PORT`; locally it falls back to the same 8080.
 const _defaultPort = 8080;
 
+/// Where the Dockerfile puts the built Flutter web app.
+const _defaultWebRoot = '/app/public';
+
 /// Configuration comes from the environment; on Cloud Run the client secret comes from Secret Manager.
 String _required(String name) {
   final value = Platform.environment[name];
@@ -19,7 +22,9 @@ String _required(String name) {
 Future<void> main() async {
   Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen((record) {
-    stderr.writeln('${record.level.name} ${record.loggerName}: ${record.message}');
+    stderr.writeln(
+      '${record.level.name} ${record.loggerName}: ${record.message}',
+    );
     if (record.error != null) stderr.writeln('  ${record.error}');
   });
 
@@ -42,17 +47,28 @@ Future<void> main() async {
     client: client,
     clock: clock,
   );
-  final prices = CachedPriceSource(
-    DatabricksPriceSource(
-      sql,
-      catalog: _required('PRICE_PASSPORT_CATALOG'),
-      schema: _required('PRICE_PASSPORT_SCHEMA'),
-      clock: clock,
-    ).deliveryDay,
+  var live = DatabricksPriceSource(
+    sql,
+    catalog: _required('PRICE_PASSPORT_CATALOG'),
+    schema: _required('PRICE_PASSPORT_SCHEMA'),
     clock: clock,
   ).deliveryDay;
+  final snapshotBucket = Platform.environment['SNAPSHOT_BUCKET'];
+  if (snapshotBucket != null && snapshotBucket.isNotEmpty) {
+    final metadataTokens = MetadataTokenSource(client: client, clock: clock);
+    live = withSnapshotFallback(
+      live,
+      CloudStorageSnapshots(
+        bucket: snapshotBucket,
+        client: client,
+        token: metadataTokens.token,
+      ),
+    );
+  }
+  final prices = CachedPriceSource(live, clock: clock).deliveryDay;
 
-  final handler = const Pipeline().addMiddleware(logRequests()).addHandler(priceRoutes(prices).call);
+  final webRoot = Platform.environment['WEB_ROOT'] ?? _defaultWebRoot;
+  final handler = const Pipeline().addMiddleware(logRequests()).addHandler(appAndApi(prices, webRoot: webRoot));
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? _defaultPort;
   final server = await io.serve(handler, InternetAddress.anyIPv4, port);
   stderr.writeln('price passport api on port ${server.port}');

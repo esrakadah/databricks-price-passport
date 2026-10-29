@@ -2,12 +2,22 @@ import 'package:price_passport_api/src/databricks_sql.dart';
 
 /// One hour of the day-ahead price as silver holds it (decisions section 4).
 class HourlyPrice {
-  const HourlyPrice({required this.hourStart, required this.priceEurMwh, required this.isComplete});
+  const HourlyPrice({
+    required this.hourStart,
+    required this.priceEurMwh,
+    required this.isComplete,
+  });
 
   factory HourlyPrice.fromRecord(Map<String, String?> record) => HourlyPrice(
     hourStart: DateTime.parse(record['hour_start']!).toUtc(),
     priceEurMwh: double.parse(record['price_eur_mwh']!),
     isComplete: record['is_complete'] == 'true',
+  );
+
+  factory HourlyPrice.fromJson(Map<String, dynamic> json) => HourlyPrice(
+    hourStart: DateTime.parse(json['hour_start'] as String).toUtc(),
+    priceEurMwh: (json['price_eur_mwh'] as num).toDouble(),
+    isComplete: json['complete'] as bool,
   );
 
   final DateTime hourStart;
@@ -30,6 +40,19 @@ class DeliveryDayPrices {
     required this.source,
   });
 
+  /// A stored answer keeps the time it was fetched live, so the app can show how old it is.
+  factory DeliveryDayPrices.fromJson(
+    Map<String, dynamic> json, {
+    required String source,
+  }) => DeliveryDayPrices(
+    deliveryDay: json['delivery_day'] as String,
+    hours: [
+      for (final hour in json['hours'] as List<dynamic>) HourlyPrice.fromJson(hour as Map<String, dynamic>),
+    ],
+    fetchedAt: DateTime.parse(json['fetched_at'] as String).toUtc(),
+    source: source,
+  );
+
   final String deliveryDay;
   final List<HourlyPrice> hours;
   final DateTime fetchedAt;
@@ -51,8 +74,12 @@ final _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
 /// Reads silver directly through the read-only service principal. The day is a bound parameter, never spliced in.
 class DatabricksPriceSource {
-  DatabricksPriceSource(this._sql, {required String catalog, required String schema, required this._clock})
-    : _table = '${_checked(catalog)}.${_checked(schema)}.silver_price_hourly';
+  DatabricksPriceSource(
+    this._sql, {
+    required String catalog,
+    required String schema,
+    required this._clock,
+  }) : _table = '${_checked(catalog)}.${_checked(schema)}.silver_price_hourly';
 
   final SqlStatementClient _sql;
   final String _table;
@@ -70,7 +97,9 @@ class DatabricksPriceSource {
     );
     return DeliveryDayPrices(
       deliveryDay: day,
-      hours: [for (final record in result.records) HourlyPrice.fromRecord(record)],
+      hours: [
+        for (final record in result.records) HourlyPrice.fromRecord(record),
+      ],
       fetchedAt: _clock().toUtc(),
       source: 'live',
     );
@@ -79,7 +108,11 @@ class DatabricksPriceSource {
 
 /// Keeps each day's prices for an hour (decisions section 5), so most requests never wake the warehouse.
 class CachedPriceSource {
-  CachedPriceSource(this._inner, {required this._clock, this.timeToLive = const Duration(hours: 1)});
+  CachedPriceSource(
+    this._inner, {
+    required this._clock,
+    this.timeToLive = const Duration(hours: 1),
+  });
 
   final PriceLookup _inner;
   final Clock _clock;
