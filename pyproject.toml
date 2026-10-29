@@ -9,6 +9,9 @@ authors = [{ name = "Esra Kadah" }]
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+price-passport-ingest = "price_passport.ingest:main"
+
 [dependency-groups]
 dev = ["mypy>=2.4", "pytest>=9.2", "ruff>=0.17.3,<0.18"]
 
