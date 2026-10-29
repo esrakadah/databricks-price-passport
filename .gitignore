@@ -3,7 +3,17 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+build/
 dist/
+*.egg-info/
+*.whl
 .databricks/
+.databrickscfg
 .env
 .env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
