@@ -40,33 +40,35 @@ What has been verified on this workspace so far, and how:
 | Workspace service principals | verified 29 Oct 2026, created with `databricks service-principals create` |
 | Workspace-level OAuth secrets for them | verified 29 Oct 2026 with `databricks service-principal-secrets-proxy create`, deleted again with `delete`; none remain |
 | Grants for `price-passport-reader` | not applied yet; applied with the Cloud Run service |
-| Serverless environment version with Python 3.12 | to check with the first job, then named in section 11 |
-| Serverless access to `api.energy-charts.info` and `api.open-meteo.com` | to check before the ingest Action is built |
-| Files API upload to a Volume from a GitHub runner | to check with the ingest Action |
+| Serverless environment version with Python 3.12 | verified 29 Oct 2026: environment version 4 runs Python 3.12.3 |
+| Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
+| Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
 | Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
 | Whether "one active pipeline per type" counts deployed or running pipelines | to check with the first pipeline |
 
-## 3. Ingestion runs outside Databricks
+## 3. Ingestion runs as a Databricks job (changed 29 Oct 2026)
 
-Because serverless compute can only reach trusted domains, the external APIs are called from a scheduled GitHub
-Action, which uploads the raw JSON into a Unity Catalog Volume through the Files API. If the check in section 2 shows
-both hosts are reachable from serverless, this decision is revisited rather than kept out of habit.
+The first version of this decision moved ingestion out of Databricks, into a GitHub Action, because Free Edition
+restricts outbound internet to trusted domains. A serverless test job on 29 October reached both
+`api.energy-charts.info` and `historical-forecast-api.open-meteo.com`, so ingestion runs where the rest of the data
+work runs: a scheduled job on serverless compute that writes the unchanged responses into the `raw` Volume.
 
-- The Action authenticates as the service principal `price-passport-ingest`, which may write to the raw Volume and
-  nothing else. Bundle deploys from CI use a second one, `price-passport-ci`. Both use OAuth machine-to-machine
-  secrets kept in a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid stored secrets, but
-  Databricks creates federation policies at account level, and Free Edition has no account console.
-- The day-ahead auction closes at 12:00 Berlin time and results follow shortly after. GitHub cron runs in UTC and is
-  best-effort, so the Action runs twice, at 12:40 and 15:40 UTC, which is after publication in both summer and winter
-  time. The 12:40 run is best-effort and stays green if tomorrow is not published yet; the 15:40 run is the one that
-  requires tomorrow. Each run fetches a rolling three-day window and overwrites one file per delivery day, so a
-  missed run heals itself and a repeated run changes nothing.
+- The job is part of the Asset Bundle (`databricks.yml`) and runs the packaged `price-passport-ingest` entry point.
+- Databricks schedules take a time zone, so it runs at 13:40 and 16:40 Berlin time, after the 12:00 auction results
+  are out, in summer and winter alike. The 13:40 run is best-effort and stays green if tomorrow is not published yet;
+  from 15:00 local time a run requires tomorrow, so the 16:40 run fails if tomorrow is missing.
+- Each run fetches yesterday, today and tomorrow and overwrites one file per delivery day, so a missed run heals itself
+  and a repeated run changes nothing. A day that is not published yet is reported, never written as an empty file.
+- Weather comes from Open-Meteo's archived forecasts for five sites across Germany, fetched up to today, one file per
+  site and UTC day. Forecasts for tomorrow are fetched at scoring time, before the cutoff (section 7).
 - The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header (22 seconds when first seen on
-  29 Oct 2026); the Action waits as told.
-- A delivery day that should be published but comes back without prices fails the 15:40 run instead of looking green.
-- GitHub disables scheduled workflows in public repositories after 60 days without activity. A separate monthly
-  workflow, the only one with `actions: write`, re-enables the ingest workflow through the API; every other workflow
-  stays read-only. Whether that resets the 60-day clock is checked when it is built.
+  29 Oct 2026); the job waits as told, and pauses between requests anyway.
+- If Databricks narrows the trusted domains, the fallback is the original design: a scheduled GitHub Action that
+  fetches the same files and uploads them through the Files API as a service principal limited to the Volume.
+
+Bundle deploys from CI use the service principal `price-passport-ci` with an OAuth machine-to-machine secret kept in
+a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid a stored secret, but Databricks
+creates federation policies at account level, and Free Edition has no account console.
 
 ## 4. Hours, not quarter-hours
 
@@ -140,4 +142,4 @@ parameters. A test pins the hash, so changing a parameter without raising the ve
 
 Free Edition has one workspace, so dev and prod are schemas in one catalog, selected by the Asset Bundle target, and
 one pipeline is parameterised by target rather than duplicated. Jobs pin a serverless environment version with
-Python 3.12, matching `requires-python`; the exact version is recorded here once the first job confirms it.
+Python 3.12, matching `requires-python`: environment version 4 (Python 3.12.3, checked 29 Oct 2026).
