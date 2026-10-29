@@ -101,8 +101,10 @@ The Cloud Run service queries Databricks through the SQL Statement API as the se
 published schema and `CAN USE` on the warehouse, nothing else. The warehouse may be cold, so the service waits with a
 timeout and retries before falling back.
 
-The fallback is a snapshot that a nightly job writes to Cloud Storage. Reading it does not need Databricks, so it still
-works when the quota has shut compute down. Every served record carries `exported_at` and its source, and the app shows
+The fallback is a snapshot in a private Cloud Storage bucket. The API writes it itself after every successful live
+read (changed 29 Oct 2026; the first version had a nightly Databricks job write it), so it needs no Databricks compute
+to exist or to be read, and it still works when the quota has shut compute down. It holds the days that were asked
+for, and the app asks for today and tomorrow on every visit. Every served record carries `exported_at` and its source, and the app shows
 the snapshot's age, because a quota shutdown can last more than a day.
 
 ## 6. Overrides are new versions, never edits
