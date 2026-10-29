@@ -1,5 +1,8 @@
+import importlib
+import importlib.metadata
 import json
 import statistics
+import tomllib
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
@@ -171,8 +174,22 @@ def test_a_response_without_prices_is_allowed_only_when_asked_for(payload):
         parse_day_ahead_prices(payload)
 
 
-def test_the_package_reports_its_version():
-    assert price_passport.__version__
+def test_the_installed_package_reports_the_version_in_pyproject():
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+
+    assert price_passport.__version__ == pyproject["project"]["version"]
+
+
+def test_an_uninstalled_package_falls_back_to_an_unknown_version(monkeypatch):
+    def not_installed(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", not_installed)
+    try:
+        assert importlib.reload(price_passport).__version__ == "0.0.0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(price_passport)
 
 
 HUGE_INTEGER_PRICE = 10**400

@@ -29,7 +29,7 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 ## Status
 
 - [x] Day-ahead price parser: hourly and 15-minute responses, clock-change days, negative prices, partial hours
-  flagged, malformed responses rejected (33 tests, 7 of them on 5 real API responses)
+  flagged, malformed responses rejected (34 tests, 7 of them on 5 real API responses)
 - [ ] Ingestion into a Unity Catalog Volume
 - [ ] Pipeline and features
 - [ ] MLflow training, registry and promotion gate

@@ -77,8 +77,8 @@ hourly and quarter-hourly prices. The tariff is hourly, so quarter-hours are ave
   after), so an incomplete hour is recognisable. Silver keeps incomplete hours with their flag; gold uses complete
   hours only.
 - Hours are stored in UTC and shown in Europe/Berlin. A local delivery day has 23 or 25 hours when the clocks change.
-- Duplicate or misaligned timestamps, non-numeric or infinite prices, and empty or deprecated responses are rejected,
-  not averaged in.
+- Duplicate or misaligned timestamps, non-numeric or infinite prices, responses marked deprecated, and responses
+  without a single price (unless the caller passes `allow_empty`) are rejected, not averaged in.
 
 ## 5. The demo reads live data, with a snapshot behind it
 
