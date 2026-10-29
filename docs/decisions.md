@@ -34,6 +34,10 @@ The Cloud Run service queries Databricks with a read-only identity and caches re
 unreachable or over its quota, it serves the last nightly snapshot instead, and the app says which source it shows.
 A demo that shows an error whenever the free quota runs out would be worse than one that is a few hours old.
 
+The read-only identity is a service principal, `price-passport-reader`, which will hold SELECT on the published
+schema and nothing else. Free Edition allows workspace service principals and workspace-level OAuth secrets (checked
+29 October 2026), so no personal token is needed for the Cloud Run service.
+
 ## 6. Overrides are new versions, never edits
 
 A person can override a price through the agent, but only after approving it, and the override is written as a new
