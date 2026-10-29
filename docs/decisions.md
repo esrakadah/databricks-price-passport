@@ -23,6 +23,14 @@ the version stored is the one that ran even if the gate moves the alias in betwe
 consistency, not only presence: for every `(model_version, mlflow_run_id)` pair in the prices table, the registry must
 report that run for that version, and every rule version must exist in code. A failed check fails the run.
 
+The rows live in `prices`, a Delta table that is only ever added to: a new champion, feature version or tariff rule adds
+rows next to the old ones, and scoring the same feature version again adds nothing, because rows merge on hour, model
+version, feature version and rule. `current_prices` is the latest scored row of each hour. The scoring job refuses days
+inside the champion's training window, so no stored price forecasts an hour the model was trained on, and it refuses a
+day with fewer feature rows than the day has hours. First run on dev, 29 Oct 2026: the 24 hours of 30 October and the
+2,137 holdout hours, every row from version 2. The stored holdout forecasts have an MAE of 36.495, the value the
+training run logged, so registry, model and table agree.
+
 ## 2. Databricks Free Edition
 
 The project runs on Free Edition, which costs nothing. Its terms shape the rest of this document:
@@ -132,6 +140,10 @@ hours old for every hour. The same `previous_day2` series is available for tomor
 the same feature. Weather comes from five sites across Germany rather than one city, since the price follows national
 wind, solar and load.
 
+The scoring job runs at 09:30 Berlin time. It first runs the ingest job, whose fetch reaches tomorrow and so brings in the
+two-day-old weather forecast for every hour of D, then refreshes silver and the features, and scores D with
+`@champion` before the 10:00 cutoff. The ingest runs at 13:40 and 16:40 stay as they are, for the prices.
+
 ## 8. Baseline and promotion gate
 
 - Version 1 is a seasonal naive baseline: the same hour one week earlier. Every run logs its skill against it.
@@ -169,6 +181,11 @@ hours, and no row with a missing feature.
 
 The rule that turns a forecast into a price is a small function with a `RULE_VERSION` constant and a hash of its
 parameters. A test pins the hash, so changing a parameter without raising the version fails CI.
+
+Rule 1 (hash `a4c32fe853a68bcc`): the forecast in ct/kWh plus a supplier margin of 2.0 ct/kWh, plus 19 percent VAT.
+Negative forecasts pass through as negative prices, as in dynamic tariffs. Grid fees, levies and the standing charge
+are left out; this is a demonstration of the energy component, not a retail offer. Every rule version that has ever
+priced a row stays in code, so the lineage check can find it.
 
 ## 11. One workspace, two targets
 

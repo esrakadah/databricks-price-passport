@@ -39,7 +39,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 - [x] MLflow training and registry: the seasonal naive baseline is version 1, a gradient-boosted model version 2
   (31 percent lower MAE on a fixed holdout), each tagged with the feature version it was trained on
 - [x] Promotion gate: `@champion` moves only on a 2 percent lower holdout MAE, and every judged version records why
-- [ ] Scoring with lineage, traceability query
+- [x] Scoring with lineage: `prices` stores every price with its model version, run, training and scoring feature
+  versions and tariff rule, checked against the registry on every run; `current_prices` serves the latest per hour
 - [ ] Asset Bundle deployment from CI
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come

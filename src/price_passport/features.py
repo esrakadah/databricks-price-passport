@@ -21,11 +21,15 @@ def require_identifiers(*names: str) -> None:
             raise ValueError(f"{name!r} is not a plain SQL identifier")
 
 
-def feature_sql(catalog: str, schema: str) -> str:
-    """The feature statement for one catalog and schema; both must be plain identifiers, as they go into the SQL."""
+def package_sql(file_name: str, catalog: str, schema: str) -> str:
+    """A statement shipped in this package for one catalog and schema; both must be plain identifiers."""
     require_identifiers(catalog, schema)
-    template = files("price_passport").joinpath("sql", FEATURE_SQL).read_text(encoding="utf-8")
+    template = files("price_passport").joinpath("sql", file_name).read_text(encoding="utf-8")
     return template.format(catalog=catalog, schema=schema)
+
+
+def feature_sql(catalog: str, schema: str) -> str:
+    return package_sql(FEATURE_SQL, catalog, schema)
 
 
 def latest_version(spark: Any, table: str) -> int:
