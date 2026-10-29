@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import price_passport
 from price_passport.energy_charts import (
     EXPECTED_UNIT,
     FIRST_QUARTER_HOUR_DELIVERY,
@@ -95,13 +96,25 @@ def test_fall_back_day_shows_the_repeated_local_hour_twice():
     assert local_hours.count(2) == 2
 
 
+def test_spring_forward_day_skips_the_missing_local_hour():
+    hourly = parse_day_ahead_prices(load_fixture("energy_charts_price_spring_forward_2026-03-29.json"))
+
+    local_hours = [row.local_hour_start.hour for row in hourly]
+
+    assert 2 not in local_hours
+
+
 def test_negative_prices_stay_negative():
     payload = load_fixture("energy_charts_price_negative_2026-05-24.json")
+    negative_hours_by_hand = sum(
+        statistics.fmean(payload["price"][start : start + QUARTER_HOURS_PER_HOUR]) < 0
+        for start in range(0, len(payload["price"]), QUARTER_HOURS_PER_HOUR)
+    )
 
     hourly = parse_day_ahead_prices(payload)
 
-    assert min(row.price_eur_mwh for row in hourly) < 0
-    assert min(row.price_eur_mwh for row in hourly) >= min(payload["price"])
+    assert negative_hours_by_hand > 0
+    assert sum(row.price_eur_mwh < 0 for row in hourly) == negative_hours_by_hand
 
 
 def test_an_hour_without_any_price_is_a_gap_not_a_zero():
@@ -147,49 +160,71 @@ def test_the_first_quarter_hour_delivery_hour_expects_four_points():
     assert after.is_complete
 
 
-def test_an_empty_response_is_allowed_only_when_asked_for():
-    assert parse_day_ahead_prices(response([], []), allow_empty=True) == []
+@pytest.mark.parametrize(
+    "payload",
+    [response([], []), response(quarter_hours(QUARTER_HOUR_ERA_HOUR), [None] * QUARTER_HOURS_PER_HOUR)],
+    ids=["no points", "points without prices"],
+)
+def test_a_response_without_prices_is_allowed_only_when_asked_for(payload):
+    assert parse_day_ahead_prices(payload, allow_empty=True) == []
     with pytest.raises(EnergyChartsResponseError, match="no prices"):
-        parse_day_ahead_prices(response([], []))
+        parse_day_ahead_prices(payload)
+
+
+def test_the_package_reports_its_version():
+    assert price_passport.__version__
+
+
+HUGE_INTEGER_PRICE = 10**400
+NEAR_FLOAT_LIMIT_PRICE = 1.7e308
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "message"),
     [
-        [],
-        response([QUARTER_HOUR_ERA_HOUR], [1.0], deprecated=True),
-        {"unit": "EUR / kWh", "unix_seconds": [QUARTER_HOUR_ERA_HOUR], "price": [1.0]},
-        response([QUARTER_HOUR_ERA_HOUR, QUARTER_HOUR_ERA_HOUR + QUARTER_HOUR_SECONDS], [1.0]),
-        response(None, []),
-        response([QUARTER_HOUR_ERA_HOUR], [float("nan")]),
-        response([QUARTER_HOUR_ERA_HOUR], [float("inf")]),
-        response([QUARTER_HOUR_ERA_HOUR], [True]),
-        response([QUARTER_HOUR_ERA_HOUR], ["12.5"]),
-        response([str(QUARTER_HOUR_ERA_HOUR)], [1.0]),
-        response([float(QUARTER_HOUR_ERA_HOUR)], [1.0]),
-        response([True], [1.0]),
-        response([QUARTER_HOUR_ERA_HOUR, QUARTER_HOUR_ERA_HOUR], [1.0, 3.0]),
-        response([QUARTER_HOUR_ERA_HOUR + 1], [1.0]),
-        response([HOURLY_ERA_HOUR, HOURLY_ERA_HOUR + QUARTER_HOUR_SECONDS], [1.0, 2.0]),
-    ],
-    ids=[
-        "not an object",
-        "deprecated",
-        "wrong unit",
-        "length mismatch",
-        "missing list",
-        "NaN price",
-        "infinite price",
-        "boolean price",
-        "text price",
-        "text timestamp",
-        "float timestamp",
-        "boolean timestamp",
-        "duplicate timestamp",
-        "timestamp off the quarter-hour",
-        "more points than the hourly market had",
+        pytest.param([], "expected a JSON object", id="not an object"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], [1.0], deprecated=True), "deprecated", id="deprecated"),
+        pytest.param(
+            {"unit": "EUR / kWh", "unix_seconds": [QUARTER_HOUR_ERA_HOUR], "price": [1.0]}, "unit", id="wrong unit"
+        ),
+        pytest.param(
+            response([QUARTER_HOUR_ERA_HOUR, QUARTER_HOUR_ERA_HOUR + QUARTER_HOUR_SECONDS], [1.0]),
+            "timestamps but",
+            id="length mismatch",
+        ),
+        pytest.param(response(None, []), "must both be lists", id="missing list"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], [float("nan")]), "not finite", id="NaN price"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], [float("inf")]), "not finite", id="infinite price"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], [True]), "not a number", id="boolean price"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], ["12.5"]), "not a number", id="text price"),
+        pytest.param(response([QUARTER_HOUR_ERA_HOUR], [HUGE_INTEGER_PRICE]), "too large", id="huge integer price"),
+        pytest.param(
+            response(quarter_hours(QUARTER_HOUR_ERA_HOUR), [NEAR_FLOAT_LIMIT_PRICE] * QUARTER_HOURS_PER_HOUR),
+            "overflow",
+            id="prices that overflow when averaged",
+        ),
+        pytest.param(response([str(QUARTER_HOUR_ERA_HOUR)], [1.0]), "not an integer", id="text timestamp"),
+        pytest.param(response([float(QUARTER_HOUR_ERA_HOUR)], [1.0]), "not an integer", id="float timestamp"),
+        pytest.param(response([True], [1.0]), "not an integer", id="boolean timestamp"),
+        pytest.param(
+            response([QUARTER_HOUR_SECONDS * 10**17], [1.0]), "outside 2000 to 2100", id="far-future timestamp"
+        ),
+        pytest.param(response([0], [1.0]), "outside 2000 to 2100", id="epoch zero"),
+        pytest.param(
+            response([QUARTER_HOUR_ERA_HOUR, QUARTER_HOUR_ERA_HOUR], [1.0, 3.0]),
+            "appears twice",
+            id="duplicate timestamp",
+        ),
+        pytest.param(
+            response([QUARTER_HOUR_ERA_HOUR + 1], [1.0]), "does not start a market product", id="off the quarter-hour"
+        ),
+        pytest.param(
+            response([HOURLY_ERA_HOUR + QUARTER_HOUR_SECONDS], [1.0]),
+            "does not start a market product",
+            id="quarter-hour point in the hourly era",
+        ),
     ],
 )
-def test_malformed_responses_raise_the_parser_error(payload):
-    with pytest.raises(EnergyChartsResponseError):
+def test_malformed_responses_raise_the_parser_error(payload, message):
+    with pytest.raises(EnergyChartsResponseError, match=message):
         parse_day_ahead_prices(payload)

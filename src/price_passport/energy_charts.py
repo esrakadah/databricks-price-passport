@@ -18,6 +18,9 @@ QUARTER_HOURS_PER_HOUR = SECONDS_PER_HOUR // QUARTER_HOUR_SECONDS
 EXPECTED_UNIT = "EUR / MWh"
 TARIFF_TIMEZONE = ZoneInfo("Europe/Berlin")
 FIRST_QUARTER_HOUR_DELIVERY = datetime(2025, 9, 30, 22, tzinfo=UTC)
+FIRST_QUARTER_HOUR_DELIVERY_EPOCH = int(FIRST_QUARTER_HOUR_DELIVERY.timestamp())
+EARLIEST_PLAUSIBLE_EPOCH = int(datetime(2000, 1, 1, tzinfo=UTC).timestamp())
+LATEST_PLAUSIBLE_EPOCH = int(datetime(2100, 1, 1, tzinfo=UTC).timestamp())
 
 
 class EnergyChartsResponseError(ValueError):
@@ -51,7 +54,7 @@ def parse_day_ahead_prices(payload: object, *, allow_empty: bool = False) -> lis
     Points without a price are skipped. An hour with some points missing is kept but reports `is_complete == False`,
     so the caller decides what an incomplete hour is worth; an hour whose points are all missing does not appear, so a
     gap stays a gap instead of becoming a zero. Anything that is not a well-formed response raises
-    `EnergyChartsResponseError`, including an empty one unless `allow_empty` is set.
+    `EnergyChartsResponseError`, including one without a single price unless `allow_empty` is set.
     """
     if not isinstance(payload, Mapping):
         raise EnergyChartsResponseError(f"expected a JSON object, got {type(payload).__name__}")
@@ -68,25 +71,19 @@ def parse_day_ahead_prices(payload: object, *, allow_empty: bool = False) -> lis
         raise EnergyChartsResponseError("unix_seconds and price must both be lists")
     if len(timestamps) != len(prices):
         raise EnergyChartsResponseError(f"{len(timestamps)} timestamps but {len(prices)} prices")
-    if not timestamps and not allow_empty:
-        raise EnergyChartsResponseError("the response contains no prices")
 
     seen_timestamps: set[int] = set()
     prices_by_hour: dict[int, list[float]] = {}
     for timestamp, price in zip(timestamps, prices, strict=True):
-        if type(timestamp) is not int:
-            raise EnergyChartsResponseError(f"timestamp {timestamp!r} is not an integer")
-        if timestamp % QUARTER_HOUR_SECONDS:
-            raise EnergyChartsResponseError(f"timestamp {timestamp} is not on a quarter-hour")
-        if timestamp in seen_timestamps:
-            raise EnergyChartsResponseError(f"timestamp {timestamp} appears twice")
+        validate_timestamp(timestamp, seen_timestamps)
         seen_timestamps.add(timestamp)
         if price is None:
             continue
-        if isinstance(price, bool) or not isinstance(price, int | float) or not math.isfinite(price):
-            raise EnergyChartsResponseError(f"price {price!r} at {timestamp} is not a finite number")
         hour_epoch = timestamp - timestamp % SECONDS_PER_HOUR
-        prices_by_hour.setdefault(hour_epoch, []).append(float(price))
+        prices_by_hour.setdefault(hour_epoch, []).append(finite_price(price, timestamp))
+
+    if not prices_by_hour and not allow_empty:
+        raise EnergyChartsResponseError("the response contains no prices")
 
     hourly = []
     for hour_epoch, hour_prices in sorted(prices_by_hour.items()):
@@ -99,9 +96,43 @@ def parse_day_ahead_prices(payload: object, *, allow_empty: bool = False) -> lis
         hourly.append(
             HourlyPrice(
                 hour_start=hour_start,
-                price_eur_mwh=math.fsum(hour_prices) / len(hour_prices),
+                price_eur_mwh=hour_mean(hour_prices, hour_start),
                 source_points=len(hour_prices),
                 expected_points=expected_points,
             )
         )
     return hourly
+
+
+def validate_timestamp(timestamp: object, seen_timestamps: set[int]) -> None:
+    if type(timestamp) is not int:
+        raise EnergyChartsResponseError(f"timestamp {timestamp!r} is not an integer")
+    if not EARLIEST_PLAUSIBLE_EPOCH <= timestamp < LATEST_PLAUSIBLE_EPOCH:
+        raise EnergyChartsResponseError(f"timestamp {timestamp} is outside 2000 to 2100")
+    product_seconds = QUARTER_HOUR_SECONDS if timestamp >= FIRST_QUARTER_HOUR_DELIVERY_EPOCH else SECONDS_PER_HOUR
+    if timestamp % product_seconds:
+        raise EnergyChartsResponseError(f"timestamp {timestamp} does not start a market product")
+    if timestamp in seen_timestamps:
+        raise EnergyChartsResponseError(f"timestamp {timestamp} appears twice")
+
+
+def finite_price(price: object, timestamp: int) -> float:
+    if isinstance(price, bool) or not isinstance(price, int | float):
+        raise EnergyChartsResponseError(f"price {price!r} at {timestamp} is not a number")
+    try:
+        value = float(price)
+    except OverflowError as error:
+        raise EnergyChartsResponseError(f"price at {timestamp} is too large for a float") from error
+    if not math.isfinite(value):
+        raise EnergyChartsResponseError(f"price {price!r} at {timestamp} is not finite")
+    return value
+
+
+def hour_mean(hour_prices: list[float], hour_start: datetime) -> float:
+    try:
+        mean = math.fsum(hour_prices) / len(hour_prices)
+    except OverflowError as error:
+        raise EnergyChartsResponseError(f"prices for {hour_start.isoformat()} overflow when averaged") from error
+    if not math.isfinite(mean):
+        raise EnergyChartsResponseError(f"prices for {hour_start.isoformat()} average to {mean}")
+    return mean

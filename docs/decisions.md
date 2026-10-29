@@ -38,7 +38,9 @@ What has been verified on this workspace so far, and how:
 | Capability | Status |
 |---|---|
 | Workspace service principals | verified 29 Oct 2026, created with `databricks service-principals create` |
-| Workspace-level OAuth secrets for them | verified 29 Oct 2026, a secret created and deleted again |
+| Workspace-level OAuth secrets for them | verified 29 Oct 2026 with `databricks service-principal-secrets-proxy create`, deleted again with `delete`; none remain |
+| Grants for `price-passport-reader` | not applied yet; applied with the Cloud Run service |
+| Serverless environment version with Python 3.12 | to check with the first job, then named in section 11 |
 | Serverless access to `api.energy-charts.info` and `api.open-meteo.com` | to check before the ingest Action is built |
 | Files API upload to a Volume from a GitHub runner | to check with the ingest Action |
 | Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
@@ -50,16 +52,21 @@ Because serverless compute can only reach trusted domains, the external APIs are
 Action, which uploads the raw JSON into a Unity Catalog Volume through the Files API. If the check in section 2 shows
 both hosts are reachable from serverless, this decision is revisited rather than kept out of habit.
 
-- The Action authenticates as its own service principal, which may write to the raw Volume and nothing else. The
-  credentials live in a GitHub Environment limited to `main`.
+- The Action authenticates as the service principal `price-passport-ingest`, which may write to the raw Volume and
+  nothing else. Bundle deploys from CI use a second one, `price-passport-ci`. Both use OAuth machine-to-machine
+  secrets kept in a GitHub Environment limited to `main`. Federated GitHub OIDC tokens would avoid stored secrets, but
+  Databricks creates federation policies at account level, and Free Edition has no account console.
 - The day-ahead auction closes at 12:00 Berlin time and results follow shortly after. GitHub cron runs in UTC and is
   best-effort, so the Action runs twice, at 12:40 and 15:40 UTC, which is after publication in both summer and winter
-  time. Each run fetches a rolling three-day window and overwrites one file per delivery day, so a missed run heals
-  itself and a repeated run changes nothing.
-- The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header; the Action waits as told.
-- A delivery day that should be published but comes back empty fails the run instead of looking green.
-- GitHub disables scheduled workflows in public repositories after 60 days without activity, so a monthly keepalive
-  commit is part of the workflow.
+  time. The 12:40 run is best-effort and stays green if tomorrow is not published yet; the 15:40 run is the one that
+  requires tomorrow. Each run fetches a rolling three-day window and overwrites one file per delivery day, so a
+  missed run heals itself and a repeated run changes nothing.
+- The Energy-Charts API answers bursts with HTTP 429 and a `Retry-After` header (22 seconds when first seen on
+  29 Oct 2026); the Action waits as told.
+- A delivery day that should be published but comes back without prices fails the 15:40 run instead of looking green.
+- GitHub disables scheduled workflows in public repositories after 60 days without activity. A separate monthly
+  workflow, the only one with `actions: write`, re-enables the ingest workflow through the API; every other workflow
+  stays read-only. Whether that resets the 60-day clock is checked when it is built.
 
 ## 4. Hours, not quarter-hours
 
@@ -100,7 +107,8 @@ reset nightly.
 
 After the day-ahead auction, tomorrow's prices are public, and forecasting them would be pointless. The tariff for
 delivery day D is therefore committed at 10:00 Berlin time on D-1, before the auction closes at 12:00. The forecast
-covers the hours of D, a horizon of 14 to 38 hours (39 on the day the clocks go back).
+covers the hours of D. `horizon_hours` is the start of the priced hour minus `forecast_issued_at`: 14 to 37 hours,
+38 on the day the clocks go back and 36 on the day they go forward.
 
 Features may only use what was known at 10:00 on D-1: day-ahead prices up to and including D-1, calendar features, and
 weather forecasts issued before the cutoff. Training uses Open-Meteo's archived historical forecasts rather than
@@ -132,4 +140,4 @@ parameters. A test pins the hash, so changing a parameter without raising the ve
 
 Free Edition has one workspace, so dev and prod are schemas in one catalog, selected by the Asset Bundle target, and
 one pipeline is parameterised by target rather than duplicated. Jobs pin a serverless environment version with
-Python 3.12, matching `requires-python`.
+Python 3.12, matching `requires-python`; the exact version is recorded here once the first job confirms it.
