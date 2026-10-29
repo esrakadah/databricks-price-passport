@@ -36,7 +36,9 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
   17,472 hours of two-day-ahead weather forecasts for each of five sites
 - [x] Gold features: one row per delivery hour with only what was known at 10:00 the day before, a plain Delta
   table kept readable for a year; tomorrow's 24 hours are ready for scoring before their prices exist
-- [ ] MLflow training, registry and promotion gate
+- [x] MLflow training and registry: the seasonal naive baseline is version 1, a gradient-boosted model version 2
+  (31 percent lower MAE on a fixed holdout), each tagged with the feature version it was trained on
+- [x] Promotion gate: `@champion` moves only on a 2 percent lower holdout MAE, and every judged version records why
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
