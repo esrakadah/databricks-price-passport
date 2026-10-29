@@ -14,13 +14,22 @@ FEATURE_SQL = "gold_features.sql"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def feature_sql(catalog: str, schema: str) -> str:
-    """The feature statement for one catalog and schema; both must be plain identifiers, as they go into the SQL."""
-    for name in (catalog, schema):
+def require_identifiers(*names: str) -> None:
+    """Catalog and schema names go into SQL text, so only plain identifiers are accepted."""
+    for name in names:
         if not IDENTIFIER.match(name):
             raise ValueError(f"{name!r} is not a plain SQL identifier")
-    template = files("price_passport").joinpath("sql", FEATURE_SQL).read_text(encoding="utf-8")
+
+
+def package_sql(file_name: str, catalog: str, schema: str) -> str:
+    """A statement shipped in this package for one catalog and schema; both must be plain identifiers."""
+    require_identifiers(catalog, schema)
+    template = files("price_passport").joinpath("sql", file_name).read_text(encoding="utf-8")
     return template.format(catalog=catalog, schema=schema)
+
+
+def feature_sql(catalog: str, schema: str) -> str:
+    return package_sql(FEATURE_SQL, catalog, schema)
 
 
 def latest_version(spark: Any, table: str) -> int:

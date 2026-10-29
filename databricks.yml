@@ -29,6 +29,10 @@ resources:
       volume_type: MANAGED
       comment: Unchanged API responses, one file per source, site and delivery day.
 
+  experiments:
+    training:
+      name: /Users/${workspace.current_user.userName}/price-passport-${var.schema}
+
   pipelines:
     silver:
       name: price-passport-silver
@@ -79,6 +83,119 @@ resources:
               - workspace
               - --schema
               - ${resources.schemas.price_passport.name}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - ./dist/*.whl
+
+    train:
+      name: price-passport-train
+      description: Trains one model on the current gold features and registers it in Unity Catalog (decisions section 8).
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: model
+          default: gradient_boosting
+      tasks:
+        - task_key: train
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-train
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+              - --model
+              - "{{job.parameters.model}}"
+              - --experiment-id
+              - ${resources.experiments.training.id}
+              - --git-commit
+              - ${bundle.git.commit}
+        - task_key: gate
+          depends_on:
+            - task_key: train
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-gate
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - ./dist/*.whl
+
+    gate:
+      name: price-passport-gate
+      description: Judges one registered model version and moves @champion only if it wins (decisions section 8).
+      max_concurrent_runs: 1
+      timeout_seconds: 1800
+      parameters:
+        - name: version
+          default: latest
+      tasks:
+        - task_key: gate
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-gate
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+              - --version
+              - "{{job.parameters.version}}"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - ./dist/*.whl
+
+    score:
+      name: price-passport-score
+      description: Refreshes the features and prices tomorrow with @champion before the 10:00 cutoff (decisions sections 1 and 7).
+      schedule:
+        quartz_cron_expression: "0 30 9 * * ?"
+        timezone_id: Europe/Berlin
+        pause_status: ${var.schedule_pause_status}
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: start
+          default: ""
+        - name: end
+          default: ""
+      tasks:
+        - task_key: refresh_features
+          run_job_task:
+            job_id: ${resources.jobs.ingest.id}
+        - task_key: score
+          depends_on:
+            - task_key: refresh_features
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-score
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+              - --start
+              - "{{job.parameters.start}}"
+              - --end
+              - "{{job.parameters.end}}"
       environments:
         - environment_key: default
           spec:

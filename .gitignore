@@ -17,4 +17,5 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+mlruns/
 .dart_tool/
