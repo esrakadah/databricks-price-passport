@@ -115,6 +115,46 @@ resources:
               - ${resources.experiments.training.id}
               - --git-commit
               - ${bundle.git.commit}
+        - task_key: gate
+          depends_on:
+            - task_key: train
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-gate
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - ./dist/*.whl
+
+    gate:
+      name: price-passport-gate
+      description: Judges one registered model version and moves @champion only if it wins (decisions section 8).
+      max_concurrent_runs: 1
+      timeout_seconds: 1800
+      parameters:
+        - name: version
+          default: latest
+      tasks:
+        - task_key: gate
+          environment_key: default
+          python_wheel_task:
+            package_name: price_passport
+            entry_point: price-passport-gate
+            parameters:
+              - --catalog
+              - workspace
+              - --schema
+              - ${resources.schemas.price_passport.name}
+              - --version
+              - "{{job.parameters.version}}"
       environments:
         - environment_key: default
           spec:

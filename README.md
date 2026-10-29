@@ -38,7 +38,7 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
   table kept readable for a year; tomorrow's 24 hours are ready for scoring before their prices exist
 - [x] MLflow training and registry: the seasonal naive baseline is version 1, a gradient-boosted model version 2
   (31 percent lower MAE on a fixed holdout), each tagged with the feature version it was trained on
-- [ ] Promotion gate
+- [x] Promotion gate: `@champion` moves only on a 2 percent lower holdout MAE, and every judged version records why
 - [ ] Scoring with lineage, traceability query
 - [ ] Asset Bundle deployment from CI
 - [ ] Dart API on Cloud Run

@@ -150,6 +150,11 @@ wind, solar and load.
 - The feature table is recorded on the run as a Unity Catalog dataset input at its Delta version, and the lineage
   (`training_data_version`, `holdout_id`, `git_commit`, `package_version`) is set as tags on the run and on the model
   version, so a passport can be checked from either side.
+- The gate runs as a task right after every training run and judges the version just registered; a separate gate job
+  judges any version by number. The first version to reach it becomes champion. Each judged version gets
+  `gate_outcome` (`promoted`, `kept` or `refused`), `gate_reason` and `gate_champion_before` as tags, so the registry
+  says why a version serves or does not. Judging the current champion again changes nothing, so its promotion record
+  is never overwritten. On dev on 29 Oct 2026, version 1 became champion as the first, and version 2 replaced it.
 
 ## 9. Feature versions that can be read again
 
