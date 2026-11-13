@@ -9,6 +9,10 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: pub
+    directory: /app
+    schedule:
+      interval: weekly
+  - package-ecosystem: pub
     directory: /api
     schedule:
       interval: weekly
