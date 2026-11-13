@@ -12,9 +12,19 @@ dependencies = []
 [project.scripts]
 price-passport-ingest = "price_passport.ingest:main"
 price-passport-features = "price_passport.features:main"
+price-passport-train = "price_passport.training:main"
+price-passport-gate = "price_passport.gate:main"
 
 [dependency-groups]
-dev = ["mypy>=2.4", "pytest>=9.2", "ruff>=0.17.3,<0.18"]
+dev = [
+    "mlflow-skinny==2.22.0",
+    "mypy>=2.4",
+    "numpy==2.1.3",
+    "pandas==2.2.3",
+    "pytest>=9.2",
+    "ruff>=0.17.3,<0.18",
+    "scikit-learn==1.6.1",
+]
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -35,7 +45,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["pyspark.*"]
+module = ["pyspark.*", "pandas.*", "sklearn.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
