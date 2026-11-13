@@ -40,7 +40,8 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
   (31 percent lower MAE on a fixed holdout), each tagged with the feature version it was trained on
 - [x] Promotion gate: `@champion` moves only on a 2 percent lower holdout MAE, and every judged version records why
 - [ ] Scoring with lineage, traceability query
-- [ ] Asset Bundle deployment from CI
+- [ ] Asset Bundle deployment from CI: deploy job on `main` into the `databricks-prod` environment, waiting for its
+  secret
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come
 - [ ] Flutter web passport
