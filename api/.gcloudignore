@@ -1,0 +1,6 @@
+# gcloud run deploy --source uploads this folder. Listed explicitly so the built web app in public/ is uploaded even
+# though git ignores it.
+.dart_tool/
+build/
+test/
+.gitignore
