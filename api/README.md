@@ -25,6 +25,20 @@ nightly export.
 The principal needs the `databricks-sql-access` entitlement, `CAN USE` on the warehouse, `USE CATALOG`, and
 `USE SCHEMA` plus `SELECT` on the schema. Table grants alone give HTTP 403 on every statement.
 
+## Deploy
+
+`./deploy.sh` deploys to Cloud Run in `devfest-backyard-barista-2026` (europe-west3) as the service account
+`price-passport-api`, which may read only the secret `price-passport-reader-secret`. At most two instances, scaled to
+zero when idle. The script refuses to run on 10 to 16 November and 10 to 11 December, when the Backyard Barista talk
+demo in the same project is live.
+
+Before the first deploy:
+
+1. Create the secret `price-passport-reader-secret` with a fresh OAuth secret of `price-passport-reader`.
+2. Point the service at a schema the reader can read: `PRICE_PASSPORT_SCHEMA` defaults to the prod schema
+   `price_passport`, which exists after the first prod deploy from CI and needs the same grants as dev (`USE SCHEMA`,
+   `SELECT`). Until then, deploy with `PRICE_PASSPORT_SCHEMA=dev_kdh_esra_price_passport_dev`.
+
 ## Run the checks
 
 ```bash
