@@ -99,6 +99,6 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.1"
-      - uses: databricks/setup-cli@2bf4520fd10723ed5a22eca62a8c8a63714a7ba9 # v1.21.0
+      - uses: databricks/setup-cli@4f41a4c5291b531c1bb1e5760d677999cd484f89 # v1.25.0
       - run: databricks bundle validate -t prod
       - run: databricks bundle deploy -t prod
