@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -650,9 +650,10 @@ wheels = [
 
 [[package]]
 name = "mlflow-skinny"
-version = "2.22.0"
+version = "3.18.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "anyio" },
     { name = "cachetools" },
     { name = "click" },
     { name = "cloudpickle" },
@@ -661,19 +662,23 @@ dependencies = [
     { name = "gitpython" },
     { name = "importlib-metadata" },
     { name = "opentelemetry-api" },
+    { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },
     { name = "packaging" },
     { name = "protobuf" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlparse" },
+    { name = "starlette" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/16/1e/7d29817fa2370f88550e86ae2be4bee5f9efe82169032dc5b1cab642e5b6/mlflow_skinny-2.22.0.tar.gz", hash = "sha256:774b58970038990650486cd934d46b7038fc390682c3bde70b4e5106f6857cce", size = 5889903, upload-time = "2025-04-24T08:24:27.876Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/c3/8b98f8171346c42eae45af19c979030780ee36021bd835c30427fc4f5928/mlflow_skinny-3.18.0.tar.gz", hash = "sha256:2653292a390d399ee2dd49e81380a89b16265a05747eb5ea0e6c1b7987e398dd", size = 3750581, upload-time = "2026-11-03T23:32:45.613Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/eb/53dd2a5db1040a21da2980c382ebe3a9bda2d8af8365c2d01053c924b150/mlflow_skinny-2.22.0-py3-none-any.whl", hash = "sha256:9efc39454f6cc3433e7d804c3df8dab4fbba1abe504c52c05f00ef1d0696fef5", size = 6268849, upload-time = "2025-04-24T08:24:25.487Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/02/9062e57d6f78ac150c53c8e970275d1e9f4b57aeb11abdb9a24bcb43b10e/mlflow_skinny-3.18.0-py3-none-any.whl", hash = "sha256:93715e152061e0ecabcc9aa70330b296141a806de9da6b2c29cff8703b00608f", size = 4421618, upload-time = "2026-11-03T23:32:43.463Z" },
 ]
 
 [[package]]
@@ -790,6 +795,18 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-proto"
+version = "1.45.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/9c/1aa4ce60e9bc72af20dc49c92cc0566825092d92b3d6a277439fb5fb7c01/opentelemetry_proto-1.45.2.tar.gz", hash = "sha256:bd8d23cf770605b0af9b7be2071d26a464fea289d35429abfd2a66226114ad64", size = 46486, upload-time = "2026-10-29T17:29:53.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/0d/a0b8f2b9efe2ec1abdf639d3696db9b1563ebeb11d91aac08ba7341e9122/opentelemetry_proto-1.45.2-py3-none-any.whl", hash = "sha256:03a7ca1b43f89fd5b965d5975902bb2515c0c86e2428b456836e9a6149c6235a", size = 72484, upload-time = "2026-10-29T17:29:31.403Z" },
+]
+
+[[package]]
 name = "opentelemetry-sdk"
 version = "1.45.1"
 source = { registry = "https://pypi.org/simple" }
@@ -897,7 +914,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mlflow-skinny", specifier = "==2.22.0" },
+    { name = "mlflow-skinny", specifier = "==3.18.0" },
     { name = "mypy", specifier = ">=2.4" },
     { name = "numpy", specifier = "==2.1.3" },
     { name = "pandas", specifier = "==2.2.3" },
@@ -1108,6 +1125,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0e/df/f15f80383f152452d8985b36d95cb8751f901a3e0ff4cd27f7e118f168e2/python_dateutil-3.0.0.tar.gz", hash = "sha256:7ebcb3c29a92f3ceafe79a7a48a5c45677e9e004bbeec5742ac0bbb00560b7a2", size = 271066, upload-time = "2026-10-21T23:41:45.075Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/17/cebee01d1c0c1441174cf0456ddc91b280d79acb65340c05e41d77866ee8/python_dateutil-3.0.0-py2.py3-none-any.whl", hash = "sha256:3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd", size = 94659, upload-time = "2026-10-21T23:41:43.431Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/26/2fbeedb218a787a5eea551c7532cac4e009f83d689dd2faa0d0353473f86/python_dotenv-1.2.4.tar.gz", hash = "sha256:f0d53e69935a851c0dcc78f3ab7aaccd8cabef0b92382b576b824212902873c0", size = 60824, upload-time = "2026-10-01T05:36:10Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/d1/38f3a3405989a89ac18390803e70c6ad7c7760da4f9b83cbeca0c44a0c72/python_dotenv-1.2.4-py3-none-any.whl", hash = "sha256:42269a8a5b3fd54ffa6f3d84b18abed50064717576b4ecf03dc4a55d8aa04fdc", size = 23266, upload-time = "2026-10-01T05:36:08.633Z" },
+]
+
+[[package]]
+name = "python-multipart"
+version = "0.0.33"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/b7/15b905f6142a9a8a68f66900788da1a32e4d4254452783b37ad1eccb0506/python_multipart-0.0.33.tar.gz", hash = "sha256:b8112424a6abd162ec08d390565dd113ad699f2fe6fef3c987b8bbcbfe9e390d", size = 50499, upload-time = "2026-10-31T14:23:47.461Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/1b/6b1b4164ec734cac911460ab599bfbe46afedd42c5c9627fe4235942c314/python_multipart-0.0.33-py3-none-any.whl", hash = "sha256:8f16c07b36add9da6b2ee87d3efcaf0a45a6de9c3d0a5dd94e9ccf7675a7bc45", size = 32253, upload-time = "2026-10-31T14:23:46.33Z" },
 ]
 
 [[package]]
