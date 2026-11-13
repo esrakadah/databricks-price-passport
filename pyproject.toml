@@ -14,6 +14,7 @@ price-passport-ingest = "price_passport.ingest:main"
 price-passport-features = "price_passport.features:main"
 price-passport-train = "price_passport.training:main"
 price-passport-gate = "price_passport.gate:main"
+price-passport-score = "price_passport.scoring:main"
 
 [dependency-groups]
 dev = [
