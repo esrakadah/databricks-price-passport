@@ -41,10 +41,12 @@ The design decisions, their reasons, and which Free Edition capabilities are ver
 - [x] Promotion gate: `@champion` moves only on a 2 percent lower holdout MAE, and every judged version records why
 - [x] Scoring with lineage: `prices` stores every price with its model version, run, training and scoring feature
   versions and tariff rule, checked against the registry on every run; `current_prices` serves the latest per hour
-- [ ] Asset Bundle deployment from CI
+- [ ] Asset Bundle deployment from CI: deploy job on `main` into the `databricks-prod` environment, waiting for its
+  secret
 - [ ] Dart API on Cloud Run: service written and tested against live Databricks (`api/`); passport route, snapshot
   fallback and deployment still to come
-- [ ] Flutter web passport
+- [ ] Flutter web passport: today and tomorrow in Berlin time with a live or snapshot badge (`app/`); hosting and
+  the passport sheet still to come
 - [ ] Genkit Dart agent with approval-gated overrides
 
 ## Run the checks

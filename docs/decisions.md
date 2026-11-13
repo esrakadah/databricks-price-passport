@@ -51,7 +51,8 @@ What has been verified on this workspace so far, and how:
 | Serverless environment version with Python 3.12 | verified 29 Oct 2026: environment version 4 runs Python 3.12.3 |
 | Serverless access to `api.energy-charts.info` and `historical-forecast-api.open-meteo.com` | verified 29 Oct 2026 with a one-off serverless job, HTTP 200 from both |
 | Files API upload to a Volume from a GitHub runner | not needed while ingestion runs in Databricks (section 3) |
-| Asset Bundle deploy, Unity Catalog model aliases, a serving endpoint | to check when each is first used |
+| Asset Bundle deploy from CI as `price-passport-ci` | prepared 29 Oct 2026: principal with `workspace-access`, `USE CATALOG` and `CREATE SCHEMA` on `workspace`; GitHub Environment `databricks-prod` limited to `main` with host and client ID as variables; the client secret is set by hand |
+| Unity Catalog model aliases, a serving endpoint | to check when each is first used |
 | A serverless SQL pipeline next to a job on Free Edition | verified 29 Oct 2026: `silver` deployed and refreshed while a backfill job ran |
 
 ## 3. Ingestion runs as a Databricks job (changed 29 Oct 2026)
@@ -109,8 +110,10 @@ The Cloud Run service queries Databricks through the SQL Statement API as the se
 published schema and `CAN USE` on the warehouse, nothing else. The warehouse may be cold, so the service waits with a
 timeout and retries before falling back.
 
-The fallback is a snapshot that a nightly job writes to Cloud Storage. Reading it does not need Databricks, so it still
-works when the quota has shut compute down. Every served record carries `exported_at` and its source, and the app shows
+The fallback is a snapshot in a private Cloud Storage bucket. The API writes it itself after every successful live
+read (changed 29 Oct 2026; the first version had a nightly Databricks job write it), so it needs no Databricks compute
+to exist or to be read, and it still works when the quota has shut compute down. It holds the days that were asked
+for, and the app asks for today and tomorrow on every visit. Every served record carries `exported_at` and its source, and the app shows
 the snapshot's age, because a quota shutdown can last more than a day.
 
 ## 6. Overrides are new versions, never edits
